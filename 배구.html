@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>말랑 배구</title>
+<style>
+html,body{margin:0;height:100%;background:#1e2a3a;display:flex;align-items:center;justify-content:center}
+canvas{width:min(96vw,calc(96vh*16/9));height:auto;border-radius:14px;box-shadow:0 8px 30px rgba(0,0,0,.4)}
+</style>
+</head>
+<body>
+<canvas id="c" width="800" height="450"></canvas>
+<script>
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+const W = 800, H = 450, GROUND = 400, NET_X = 400, NET_W = 8, NET_TOP = 280, WIN = 11;
+const G_P = 0.55, G_B = 0.28, BR = 16, PR = 34, FONT = '"Malgun Gothic","Apple SD Gothic Neo",sans-serif';
+
+const keys = {};
+addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (['ArrowUp', 'ArrowLeft', 'ArrowDown', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
+  if (e.code === 'Space' && (state === 'title' || state === 'over')) { score = [0, 0]; serve(0); }
+});
+addEventListener('keyup', e => { keys[e.code] = false; });
+
+function mkPlayer(x, side) { return { x, y: GROUND - PR, vx: 0, vy: 0, side, smash: 0, smashUsed: false }; }
+const me = mkPlayer(200, -1), cpu = mkPlayer(600, 1);
+const ball = { x: 200, y: 150, vx: 0, vy: 0, spin: 0 };
+let score = [0, 0], state = 'title', timer = 0, server = 0, lastWin = 0, aiErr = 0, tick = 0;
+
+function serve(who) {
+  server = who;
+  Object.assign(ball, { x: who === 0 ? 200 : 600, y: 150, vx: 0, vy: 0 });
+  Object.assign(me, { x: 200, y: GROUND - PR, vx: 0, vy: 0, smash: 0 });
+  Object.assign(cpu, { x: 600, y: GROUND - PR, vx: 0, vy: 0, smash: 0 });
+  aiErr = (Math.random() - 0.5) * 30;
+  state = 'play';
+  timer = 45;
+}
+
+function movePlayer(p, left, right, jump, smash) {
+  const sp = p === me ? 5.2 : 4.6;
+  p.vx = (right ? sp : 0) - (left ? sp : 0);
+  const onGround = p.y >= GROUND - PR - 0.1;
+  if (jump && onGround) p.vy = -12.5;
+  if (onGround) p.smashUsed = false;
+  else if (smash && !p.smashUsed) { p.smash = 18; p.smashUsed = true; }
+  p.vy += G_P; p.x += p.vx; p.y += p.vy;
+  if (p.y > GROUND - PR) { p.y = GROUND - PR; p.vy = 0; }
+  const minX = p.side < 0 ? PR : NET_X + NET_W / 2 + PR;
+  const maxX = p.side < 0 ? NET_X - NET_W / 2 - PR : W - PR;
+  p.x = Math.max(minX, Math.min(maxX, p.x));
+  if (p.smash > 0) p.smash--;
+}
+
+function hitPlayer(p) {
+  const dx = ball.x - p.x, dy = ball.y - p.y, d = Math.hypot(dx, dy);
+  if (d >= BR + PR || d === 0) return;
+  const nx = dx / d, ny = dy / d;
+  ball.x = p.x + nx * (BR + PR); ball.y = p.y + ny * (BR + PR);
+  if (p.smash > 0) {           // 스파이크: 상대 코트로 강하게 내리꽂기
+    ball.vx = -p.side * 13; ball.vy = 6; p.smash = 0;
+    return;
+  }
+  const speed = Math.max(Math.hypot(ball.vx, ball.vy) * 0.75, 10);
+  ball.vx = nx * speed + p.vx * 0.4;
+  ball.vy = ny * speed + p.vy * 0.3;
+  if (ny < 0) ball.vy = Math.min(ball.vy, -7);
+}
+
+function netCollide() {
+  const cx = Math.max(NET_X - NET_W / 2, Math.min(NET_X + NET_W / 2, ball.x));
+  const cy = Math.max(NET_TOP, Math.min(GROUND, ball.y));
+  let dx = ball.x - cx, dy = ball.y - cy, d = Math.hypot(dx, dy);
+  if (d >= BR) return;
+  if (d === 0) { dx = ball.x < NET_X ? -1 : 1; dy = 0; d = 1; }
+  const nx = dx / d, ny = dy / d;
+  ball.x = cx + nx * BR; ball.y = cy + ny * BR;
+  const dot = ball.vx * nx + ball.vy * ny;
+  if (dot < 0) { ball.vx -= 1.8 * dot * nx; ball.vy -= 1.8 * dot * ny; }
+}
+
+function stepBall() {
+  ball.vy += G_B; ball.x += ball.vx; ball.y += ball.vy;
+  if (ball.x < BR) { ball.x = BR; ball.vx = Math.abs(ball.vx) * 0.9; }
+  if (ball.x > W - BR) { ball.x = W - BR; ball.vx = -Math.abs(ball.vx) * 0.9; }
+  if (ball.y < BR) { ball.y = BR; ball.vy = Math.abs(ball.vy) * 0.8; }
+  hitPlayer(me); hitPlayer(cpu); netCollide();
+  const sp = Math.hypot(ball.vx, ball.vy);
+  if (sp > 16) { ball.vx *= 16 / sp; ball.vy *= 16 / sp; }
+  ball.spin += ball.vx * 0.03;
+  if (ball.y + BR >= GROUND) {
+    ball.y = GROUND - BR;
+    lastWin = ball.x < NET_X ? 1 : 0;
+    score[lastWin]++;
+    state = 'point'; timer = 75;
+  }
+}
+
+// 공이 CPU 머리 높이에 올 때의 x 위치 예측
+function predictX() {
+  let x = ball.x, y = ball.y, vx = ball.vx, vy = ball.vy;
+  for (let i = 0; i < 240; i++) {
+    vy += G_B; x += vx; y += vy;
+    if (x < BR) { x = BR; vx = -vx; }
+    if (x > W - BR) { x = W - BR; vx = -vx; }
+    if (vy > 0 && y > GROUND - PR * 2) break;
+  }
+  return x;
+}
+
+function ai() {
+  let target = 620;
+  if (state === 'play') {
+    if (timer > 0) { if (server === 1) target = ball.x + 10; }
+    else { const px = predictX(); if (px > NET_X) target = px + 8 + aiErr; }
+  }
+  const a = { left: cpu.x > target + 6, right: cpu.x < target - 6, jump: false, smash: false };
+  const dx = ball.x - cpu.x, dy = cpu.y - ball.y;
+  if (state === 'play' && timer <= 0 && ball.x > NET_X && Math.abs(dx) < 55 && dy > 40 && dy < 150 && ball.vy > 0 && Math.random() < 0.15) a.jump = true;
+  if (cpu.vy !== 0 && Math.abs(dx) < 80 && ball.y < cpu.y && Math.random() < 0.05) a.smash = true;
+  return a;
+}
+
+function update() {
+  tick++;
+  if (state === 'title' || state === 'over') return;
+  movePlayer(me, keys.ArrowLeft, keys.ArrowRight, keys.ArrowUp, keys.ArrowDown);
+  const a = ai();
+  movePlayer(cpu, a.left, a.right, a.jump, a.smash);
+  if (state === 'play') { if (timer > 0) timer--; else stepBall(); }
+  else if (state === 'point' && --timer <= 0) {
+    if (score[0] >= WIN || score[1] >= WIN) state = 'over'; else serve(lastWin);
+  }
+}
+
+// ---------- 그리기 ----------
+function cloud(x, y) {
+  ctx.fillStyle = 'rgba(255,255,255,.85)';
+  ctx.beginPath(); ctx.arc(x, y, 18, 0, 7); ctx.arc(x + 20, y - 8, 22, 0, 7); ctx.arc(x + 42, y, 18, 0, 7); ctx.fill();
+}
+
+function drawBG() {
+  const g = ctx.createLinearGradient(0, 0, 0, GROUND);
+  g.addColorStop(0, '#7cc8ff'); g.addColorStop(1, '#dff4ff');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, GROUND);
+  ctx.fillStyle = '#fff3b0'; ctx.beginPath(); ctx.arc(720, 70, 30, 0, 7); ctx.fill();
+  for (let i = 0; i < 3; i++) cloud(((tick * 0.15 * (i + 1) + i * 300) % (W + 200)) - 100, 70 + i * 40);
+  ctx.fillStyle = '#f5d68f'; ctx.fillRect(0, GROUND, W, H - GROUND);
+  ctx.fillStyle = '#e8c275'; ctx.fillRect(0, GROUND, W, 4);
+  ctx.fillStyle = '#fff'; ctx.strokeStyle = '#8899aa'; ctx.lineWidth = 2;
+  ctx.fillRect(NET_X - NET_W / 2, NET_TOP, NET_W, GROUND - NET_TOP);
+  ctx.strokeRect(NET_X - NET_W / 2, NET_TOP, NET_W, GROUND - NET_TOP);
+  ctx.fillStyle = '#ff6b6b'; ctx.beginPath(); ctx.arc(NET_X, NET_TOP, 6, 0, 7); ctx.fill();
+}
+
+function drawChar(p, kind) {
+  const h = GROUND - PR - p.y;
+  ctx.fillStyle = 'rgba(0,0,0,.15)';
+  ctx.beginPath(); ctx.ellipse(p.x, GROUND + 4, PR * Math.max(0.4, 1 - h / 400), 7, 0, 0, 7); ctx.fill();
+  ctx.save(); ctx.translate(p.x, p.y);
+  const sq = h > 0.1 ? 1 + Math.max(-0.08, Math.min(0.08, -p.vy * 0.008)) : 1;
+  ctx.scale(1 / sq, sq);
+  const body = kind === 'bunny' ? '#ffb3c7' : '#9fd0ff';
+  const dark = kind === 'bunny' ? '#e88aa5' : '#6aa8e0';
+  const inner = kind === 'bunny' ? '#ffdde6' : '#d6edff';
+  ctx.strokeStyle = dark; ctx.lineWidth = 3;
+  for (const s of [-1, 1]) {        // 귀
+    ctx.fillStyle = body;
+    if (kind === 'bunny') {
+      ctx.save(); ctx.translate(s * 13, -PR + 4); ctx.rotate(s * 0.18);
+      ctx.beginPath(); ctx.ellipse(0, -22, 9, 24, 0, 0, 7); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = inner; ctx.beginPath(); ctx.ellipse(0, -22, 4, 16, 0, 0, 7); ctx.fill();
+      ctx.restore();
+    } else {
+      ctx.beginPath(); ctx.arc(s * 22, -PR + 8, 11, 0, 7); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = inner; ctx.beginPath(); ctx.arc(s * 22, -PR + 8, 5, 0, 7); ctx.fill();
+    }
+  }
+  ctx.fillStyle = body; ctx.beginPath(); ctx.arc(0, 0, PR, 0, 7); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = inner; ctx.beginPath(); ctx.ellipse(0, 13, 20, 15, 0, 0, 7); ctx.fill();
+
+  const face = -p.side * 6;
+  const ang = Math.atan2(ball.y - p.y, ball.x - p.x), lx = Math.cos(ang) * 2.5, ly = Math.sin(ang) * 2.5;
+  const blink = (tick + (p === me ? 0 : 90)) % 200 < 7;
+  ctx.strokeStyle = '#333'; ctx.fillStyle = '#333'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+  for (const s of [-1, 1]) {        // 눈
+    const ex = face + s * 11, ey = -6;
+    ctx.beginPath();
+    if (p.smash > 0) { ctx.moveTo(ex + s * 4, ey - 4); ctx.lineTo(ex - s * 4, ey); ctx.lineTo(ex + s * 4, ey + 4); ctx.stroke(); }
+    else if (blink) { ctx.moveTo(ex - 4, ey); ctx.lineTo(ex + 4, ey); ctx.stroke(); }
+    else {
+      ctx.arc(ex + lx, ey + ly, 5, 0, 7); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(ex + lx - 1.5, ey + ly - 2, 1.8, 0, 7); ctx.fill(); ctx.fillStyle = '#333';
+    }
+  }
+  ctx.fillStyle = 'rgba(255,110,140,.45)';  // 볼터치
+  for (const s of [-1, 1]) { ctx.beginPath(); ctx.ellipse(face + s * 21, 4, 6, 4, 0, 0, 7); ctx.fill(); }
+  ctx.lineWidth = 2;                         // 입 (w 모양)
+  for (const s of [-1, 1]) { ctx.beginPath(); ctx.arc(face + s * 3, 4, 3, 0, Math.PI); ctx.stroke(); }
+  ctx.restore();
+}
+
+function drawBall() {
+  const h = GROUND - ball.y;
+  ctx.fillStyle = 'rgba(0,0,0,.15)';
+  ctx.beginPath(); ctx.ellipse(ball.x, GROUND + 4, Math.max(4, BR * (1 - h / 450)), 5, 0, 0, 7); ctx.fill();
+  ctx.save(); ctx.translate(ball.x, ball.y); ctx.rotate(ball.spin);
+  ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(0, 0, BR, 0, 7); ctx.fill();
+  ctx.save(); ctx.clip(); ctx.lineWidth = 4;
+  for (let i = 0; i < 3; i++) {
+    ctx.rotate(Math.PI * 2 / 3); ctx.strokeStyle = i % 2 ? '#4aa3ff' : '#ffc93c';
+    ctx.beginPath(); ctx.arc(0, BR * 1.1, BR * 1.1, Math.PI * 1.15, Math.PI * 1.85); ctx.stroke();
+  }
+  ctx.restore();
+  ctx.strokeStyle = '#5a6b80'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 0, BR, 0, 7); ctx.stroke();
+  ctx.restore();
+}
+
+function outlined(text, x, y, size) {
+  ctx.font = `bold ${size}px ${FONT}`; ctx.textAlign = 'center';
+  ctx.lineWidth = size / 6; ctx.strokeStyle = '#33507a'; ctx.fillStyle = '#fff';
+  ctx.strokeText(text, x, y); ctx.fillText(text, x, y);
+}
+
+function panel(title, lines) {
+  ctx.fillStyle = 'rgba(20,35,60,.55)'; ctx.fillRect(0, 0, W, H);
+  outlined(title, W / 2, 170, 56);
+  lines.forEach((l, i) => outlined(l, W / 2, 230 + i * 34, 20));
+}
+
+function draw() {
+  drawBG();
+  drawChar(me, 'bunny'); drawChar(cpu, 'bear'); drawBall();
+  outlined(`${score[0]}  :  ${score[1]}`, W / 2, 52, 40);
+  outlined('토끼 (나)', 150, 36, 18); outlined('곰 (CPU)', 650, 36, 18);
+  if (state === 'point') outlined(lastWin === 0 ? '득점!' : '실점…', W / 2, 150, 44);
+  if (state === 'title') panel('말랑 배구', ['← → 이동 · ↑ 점프 · ↓ 스파이크(점프 중)', `${WIN}점 먼저 내면 승리`, '스페이스바를 눌러 시작']);
+  if (state === 'over') panel(score[0] > score[1] ? '승리! 🎉' : '패배…', [`${score[0]} : ${score[1]}`, '스페이스바를 눌러 다시 하기']);
+}
+
+let last = performance.now(), acc = 0;
+function frame(t) {
+  acc += Math.min(100, t - last); last = t;
+  while (acc >= 1000 / 60) { update(); acc -= 1000 / 60; }
+  draw();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
