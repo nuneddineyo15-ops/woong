@@ -6,7 +6,20 @@ import plotly.graph_objects as go
 
 from core import KIND, PARAMS, near_margin
 
-LINE_COLOR = "#0ea5e9"
+LINE_COLOR = "#22d3ee"
+
+
+def style(fig: go.Figure) -> go.Figure:
+    """다크 관제 테마 공통 스타일."""
+    fig.update_layout(
+        template="plotly_dark",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="#94a3b8"),
+    )
+    fig.update_xaxes(gridcolor="rgba(255,255,255,.05)", zeroline=False)
+    fig.update_yaxes(gridcolor="rgba(255,255,255,.05)", zeroline=False)
+    return fig
 
 
 def _spans(mask: pd.Series) -> list[tuple]:
@@ -86,4 +99,4 @@ def sensor_figure(df: pd.DataFrame, param: str, window_min: int, height: int = 2
         xaxis=dict(tickformat="%H:%M", showgrid=False),
         yaxis=dict(range=[y0, y1], title=None),
     )
-    return fig
+    return style(fig)

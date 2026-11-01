@@ -5,7 +5,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from charts import sensor_figure
+from charts import sensor_figure, style
 from core import (
     FLAG_COL, KIND, PARAMS, PLANT, active_kinds, alert_events, all_lines, line_label,
     load_data, spec_text, window_kinds,
@@ -47,7 +47,7 @@ def _legend():
 
 
 def _header(title: str, sub: str):
-    st.title(title)
+    st.markdown(f"### {title.split(' ', 1)[-1]}")
     last = load_data()[next(iter(load_data()))].index[-1]
     st.caption(f"{sub}  |  데이터 기준 {last:%Y-%m-%d %H:%M} (데모)")
 
@@ -134,6 +134,7 @@ def overview():
         height=70 + 62 * len(lines), margin=dict(l=8, r=8, t=8, b=8),
         xaxis=dict(side="top"), yaxis=dict(autorange="reversed"),
     )
+    style(fig)
     st.plotly_chart(fig, width="stretch", key="map", config={"displayModeBar": False})
     st.caption("  ".join(f"<span style='color:{c}'>■</span> {n_}" for n_, c in MAP_STATES), unsafe_allow_html=True)
 
