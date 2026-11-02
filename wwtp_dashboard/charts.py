@@ -1,10 +1,10 @@
-"""Plotly 차트: 추이 + 규격선 + 근접 구간 + 이상 구간 표시."""
+"""Plotly 차트: 추이 + 규격선 + 근접/이탈 구간 + 이상 구간 + 동료 비교."""
 from __future__ import annotations
 
-import pandas as pd
+import numpy as np
 import plotly.graph_objects as go
 
-from core import KIND, PARAMS, near_margin
+from core import KIND, Plant
 
 LINE_COLOR = "#22d3ee"
 
@@ -22,81 +22,76 @@ def style(fig: go.Figure) -> go.Figure:
     return fig
 
 
-def _spans(mask: pd.Series) -> list[tuple]:
+def _spans(mask: np.ndarray, x) -> list[tuple]:
     out, start = [], None
-    idx = mask.index
-    for i, f in enumerate(mask.values):
+    for i, f in enumerate(mask):
         if f and start is None:
-            start = idx[i]
+            start = i
         elif not f and start is not None:
-            out.append((start, idx[i - 1]))
+            out.append((x[start], x[i - 1]))
             start = None
     if start is not None:
-        out.append((start, idx[-1]))
+        out.append((x[start], x[-1]))
     return out
 
 
-def sensor_figure(df: pd.DataFrame, param: str, window_min: int, height: int = 230) -> go.Figure:
-    p = PARAMS[param]
-    lsl, usl, m = p["lsl"], p["usl"], near_margin(p)
-    w = df.iloc[-window_min:]
+def sensor_figure(plant: Plant, i: int, window: int, height: int = 230, peers: bool = True) -> go.Figure:
+    unit = plant.meta["unit"].iat[i]
+    lsl, usl, m = plant.lsl[i], plant.usl[i], plant.margin[i]
+    has_l = not np.isnan(lsl)
+    x = plant.idx[-window:]
+    y = plant.V[i, -window:]
 
-    lo = min(w["value"].min(), lsl if lsl is not None else w["value"].min())
-    hi = max(w["value"].max(), usl)
+    lo = min(y.min(), lsl if has_l else y.min())
+    hi = max(y.max(), usl)
     pad = (hi - lo) * 0.08
     y0, y1 = lo - pad, hi + pad
 
     fig = go.Figure()
 
-    # 상한 쪽: 근접(주황) + 이탈(빨강) 영역
+    # 규격 영역: 근접(주황) / 이탈(빨강)
     fig.add_hrect(y0=usl - m, y1=usl, fillcolor="rgba(249,115,22,.14)", line_width=0, layer="below")
     fig.add_hrect(y0=usl, y1=y1, fillcolor="rgba(239,68,68,.12)", line_width=0, layer="below")
-    # 하한 쪽
-    if lsl is not None:
+    if has_l:
         fig.add_hrect(y0=lsl, y1=lsl + m, fillcolor="rgba(249,115,22,.14)", line_width=0, layer="below")
         fig.add_hrect(y0=y0, y1=lsl, fillcolor="rgba(239,68,68,.12)", line_width=0, layer="below")
 
-    # 이상 구간(Hold / σ 초과) 세로 음영
-    for kind, col in (("HOLD", "hold"), ("STD", "stdx")):
-        rgb = {"HOLD": "59,130,246", "STD": "168,85,247"}[kind]
-        for a, b in _spans(w[col]):
-            fig.add_vrect(x0=a, x1=b, fillcolor=f"rgba({rgb},.18)", line_width=0, layer="below")
+    # 이상 구간 세로 음영 (Hold / σ 초과 / 동료 이탈)
+    for kind, rgb in (("HOLD", "59,130,246"), ("STD", "168,85,247"), ("PEER", "236,72,153")):
+        for a, b in _spans(plant.F[kind][i, -window:], x):
+            fig.add_vrect(x0=a, x1=b, fillcolor=f"rgba({rgb},.16)", line_width=0, layer="below")
 
-    # 본선
+    # 동료(같은 항목 다른 센서) 범위 + 중앙값
+    if peers:
+        mem = plant.members[plant.G[i]]
+        mem = mem[mem != i]
+        if len(mem):
+            P = plant.V[mem][:, -window:]
+            fig.add_trace(go.Scatter(x=x, y=P.min(axis=0), mode="lines", line=dict(width=0), hoverinfo="skip", showlegend=False))
+            fig.add_trace(go.Scatter(x=x, y=P.max(axis=0), mode="lines", line=dict(width=0), fill="tonexty",
+                                     fillcolor="rgba(148,163,184,.16)", hoverinfo="skip", showlegend=False))
+            fig.add_trace(go.Scatter(x=x, y=np.median(P, axis=0), mode="lines", line=dict(color="#94a3b8", width=1.2, dash="dot"),
+                                     hovertemplate="동료 중앙값 %{y:.2f}<extra></extra>", showlegend=False))
+
     fig.add_trace(
-        go.Scatter(
-            x=w.index, y=w["value"], mode="lines", name=param,
-            line=dict(color=LINE_COLOR, width=1.8),
-            hovertemplate="%{x|%H:%M}  <b>%{y:.2f}</b> " + p["unit"] + "<extra></extra>",
-        )
+        go.Scatter(x=x, y=y, mode="lines", line=dict(color=LINE_COLOR, width=1.9),
+                   hovertemplate="<b>%{y:.2f}</b> " + unit + "<extra></extra>", showlegend=False)
     )
-    # 이탈/근접 점
-    for kind, col, size in (("NEAR", "near", 5), ("SPEC", "spec", 7)):
-        pts = w[w[col]]
-        if len(pts):
-            fig.add_trace(
-                go.Scatter(
-                    x=pts.index, y=pts["value"], mode="markers", name=KIND[kind]["label"],
-                    marker=dict(color=KIND[kind]["color"], size=size),
-                    hovertemplate=f"{KIND[kind]['label']}  %{{y:.2f}}<extra></extra>",
-                )
-            )
+    for kind, size in (("NEAR", 5), ("SPEC", 7)):
+        mk = plant.F[kind][i, -window:]
+        if mk.any():
+            fig.add_trace(go.Scatter(x=x[mk], y=y[mk], mode="markers", marker=dict(color=KIND[kind]["color"], size=size),
+                                     hovertemplate=f"{KIND[kind]['label']} %{{y:.2f}}<extra></extra>", showlegend=False))
 
-    # 규격선
-    fig.add_hline(y=usl, line=dict(color="#ef4444", width=1.3, dash="dash"),
-                  annotation_text=f"USL {usl:g}", annotation_position="top left",
-                  annotation_font=dict(size=10, color="#ef4444"))
-    if lsl is not None:
-        fig.add_hline(y=lsl, line=dict(color="#ef4444", width=1.3, dash="dash"),
-                      annotation_text=f"LSL {lsl:g}", annotation_position="bottom left",
-                      annotation_font=dict(size=10, color="#ef4444"))
+    fig.add_hline(y=usl, line=dict(color="#ef4444", width=1.3, dash="dash"), annotation_text=f"USL {usl:g}",
+                  annotation_position="top left", annotation_font=dict(size=10, color="#ef4444"))
+    if has_l:
+        fig.add_hline(y=lsl, line=dict(color="#ef4444", width=1.3, dash="dash"), annotation_text=f"LSL {lsl:g}",
+                      annotation_position="bottom left", annotation_font=dict(size=10, color="#ef4444"))
 
     fig.update_layout(
-        height=height,
-        margin=dict(l=8, r=8, t=8, b=8),
-        showlegend=False,
-        hovermode="x unified",
-        xaxis=dict(tickformat="%H:%M", showgrid=False),
+        height=height, margin=dict(l=8, r=8, t=8, b=8), showlegend=False, hovermode="x unified",
+        xaxis=dict(tickformat="%H:%M" if window <= 288 else "%m/%d %H:%M", showgrid=False),
         yaxis=dict(range=[y0, y1], title=None),
     )
     return style(fig)
