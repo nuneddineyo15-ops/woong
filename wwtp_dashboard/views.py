@@ -2,28 +2,16 @@
 from __future__ import annotations
 
 import pandas as pd
-import plotly.graph_objects as go
 import streamlit as st
 
-from charts import sensor_figure, style
+from charts import sensor_figure
 from core import (
-    FLAG_COL, KIND, PARAMS, PLANT, active_kinds, alert_events, all_lines, line_label,
-    load_data, spec_text, window_kinds,
+    KIND, PARAMS, PLANT, active_kinds, alert_events, all_lines, line_label,
+    load_data, near_margin, spec_text, window_kinds,
 )
 
 RANGES = {"1시간": 60, "3시간": 180, "6시간": 360, "12시간": 720, "24시간": 1440}
 BADGE = {"SPEC": ":red", "NEAR": ":orange", "HOLD": ":blue", "STD": ":violet"}
-
-# 종합 맵 색상 (코드 → 색)
-MAP_STATES = [
-    ("정상", "#16a34a"),
-    ("해소(이력)", "#64748b"),
-    ("σ 초과", KIND["STD"]["color"]),
-    ("Hold", KIND["HOLD"]["color"]),
-    ("근접", KIND["NEAR"]["color"]),
-    ("스펙 이탈", KIND["SPEC"]["color"]),
-]
-KIND_TO_CODE = {"STD": 2, "HOLD": 3, "NEAR": 4, "SPEC": 5}
 
 
 # ───────────────────────── 공통 ─────────────────────────
@@ -50,6 +38,67 @@ def _header(title: str, sub: str):
     st.markdown(f"### {title.split(' ', 1)[-1]}")
     last = load_data()[next(iter(load_data()))].index[-1]
     st.caption(f"{sub}  |  데이터 기준 {last:%Y-%m-%d %H:%M} (데모)")
+
+
+
+OVERVIEW_CSS = """<style>
+.bh{font-weight:700;color:#cbd5e1;letter-spacing:.05em;margin:14px 0 6px;font-size:13px}
+.orow{display:grid;grid-template-columns:140px 1fr;gap:10px;margin-bottom:10px}
+.orl{background:rgba(18,26,43,.72);border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:10px 12px;
+  display:flex;flex-direction:column;justify-content:center}
+.orl b{color:#e2e8f0;font-size:13px}.orl small{color:#64748b;font-size:11px}
+.tiles{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
+.t{background:rgba(18,26,43,.72);border:1px solid;border-radius:10px;padding:9px 12px 8px}
+.th{display:flex;justify-content:space-between;font-size:11px;color:#94a3b8}
+.tv{font-family:'Orbitron',sans-serif;font-size:21px;color:#e2e8f0;margin:2px 0 8px}
+.tv small{font-family:inherit;font-size:10px;color:#64748b;margin-left:5px}
+.track{position:relative;height:8px;border-radius:4px;overflow:hidden;background:#1e293b}
+.track i{position:absolute;top:0;bottom:0}
+.mk{position:absolute;top:-3px;width:4px;height:14px;border-radius:2px;background:#fff;transform:translateX(-50%)}
+.mw{position:relative;margin-top:0}
+.tr{display:flex;justify-content:space-between;font-size:10px;color:#64748b;margin-top:5px}
+</style>"""
+_GREEN, _ORANGE, _RED = "rgba(34,197,94,.55)", "rgba(249,115,22,.75)", "rgba(239,68,68,.75)"
+
+
+def _tile_html(key, df, window: int) -> str:
+    """값 + 규격 안에서의 위치 막대 한 칸."""
+    param = key[3]
+    p = PARAMS[param]
+    lsl, usl, m = p["lsl"], p["usl"], near_margin(p)
+    val = df["value"].iloc[-1]
+    kinds = active_kinds(df)
+    hist = window_kinds(df, window)
+    if kinds:
+        c, text = KIND[kinds[0]]["color"], KIND[kinds[0]]["label"] + (f" 외 {len(kinds) - 1}" if len(kinds) > 1 else "")
+    elif hist:
+        c, text = "#64748b", "해소됨"
+    else:
+        c, text = "#22c55e", "정상"
+
+    lo = lsl if lsl is not None else 0.0
+    span = usl - lo
+    a_lo = lo - 0.2 * span if lsl is not None else 0.0
+    a_hi = usl + 0.2 * span
+
+    def pct(x):
+        return max(0.0, min(100.0, (x - a_lo) / (a_hi - a_lo) * 100))
+
+    segs = []
+    if lsl is not None:
+        segs += [(a_lo, lsl, _RED), (lsl, lsl + m, _ORANGE)]
+    segs += [(lsl + m if lsl is not None else lo, usl - m, _GREEN), (usl - m, usl, _ORANGE), (usl, a_hi, _RED)]
+    bar = "".join(
+        f'<i style="left:{pct(x0):.1f}%;width:{pct(x1) - pct(x0):.1f}%;background:{col}"></i>' for x0, x1, col in segs
+    )
+    left = f"{lsl:g}" if lsl is not None else "0"
+    return (
+        f'<div class="t" style="border-color:{c}88"><div class="th"><span>{param}</span>'
+        f'<span style="color:{c}">● {text}</span></div>'
+        f'<div class="tv">{val:.2f}<small>{p["unit"]}</small></div>'
+        f'<div class="mw"><div class="track">{bar}</div><span class="mk" style="left:{pct(val):.1f}%"></span></div>'
+        f'<div class="tr"><span>{left}</span><span>{usl:g}</span></div></div>'
+    )
 
 
 def _sensor_card(key, df, window: int, height: int = 220, tag: str = "", note: str = ""):
@@ -99,46 +148,18 @@ def overview():
     for c, k in zip(cols[1:], ["SPEC", "NEAR", "HOLD", "STD"]):
         c.metric(f"{KIND[k]['icon']} {KIND[k]['label']}", f"{act[k]} 건", delta_color="off")
 
-    # 공정 맵 (행: 건물›시스템›계열, 열: 항목)
-    st.subheader("공정 상태 맵")
-    st.caption(f"현재 값과 상태 (조회 구간 {st.session_state.get('range', '6시간')} 기준 이력 포함) — 셀 색이 곧 경고 종류")
-    lines = all_lines()
-    params = list(PARAMS)
-    z, txt, hover = [], [], []
-    for (b, s, l) in lines:
-        zr, tr, hr = [], [], []
-        for param in params:
-            df = data[(b, s, l, param)]
-            a = active_kinds(df)
-            h = window_kinds(df, window)
-            code = max(KIND_TO_CODE[k] for k in a) if a else (1 if h else 0)
-            zr.append(code)
-            tr.append(f"{df['value'].iloc[-1]:.1f}")
-            state = ", ".join(KIND[k]["label"] for k in a) if a else ("해소: " + ", ".join(KIND[k]["label"] for k in h) if h else "정상")
-            hr.append(f"{line_label(b, s, l)}<br>{param}: {df['value'].iloc[-1]:.2f} {PARAMS[param]['unit']}<br>{state}")
-        z.append(zr); txt.append(tr); hover.append(hr)
-
-    n = len(MAP_STATES)
-    colorscale = []
-    for i, (_, c) in enumerate(MAP_STATES):
-        colorscale += [[i / n, c], [(i + 1) / n, c]]
-    ylabels = [f"{b.split('(')[0]} · {s} · {l}" for (b, s, l) in lines]
-    fig = go.Figure(
-        go.Heatmap(
-            z=z, x=[f"{p} ({PARAMS[p]['unit']})" for p in params], y=ylabels,
-            text=txt, texttemplate="%{text}", textfont=dict(color="white", size=15),
-            customdata=hover, hovertemplate="%{customdata}<extra></extra>",
-            colorscale=colorscale, zmin=-0.5, zmax=n - 0.5, showscale=False,
-            xgap=4, ygap=4,
-        )
-    )
-    fig.update_layout(
-        height=70 + 62 * len(lines), margin=dict(l=8, r=8, t=8, b=8),
-        xaxis=dict(side="top"), yaxis=dict(autorange="reversed"),
-    )
-    style(fig)
-    st.plotly_chart(fig, width="stretch", key="map", config={"displayModeBar": False})
-    st.caption("  ".join(f"<span style='color:{c}'>■</span> {n_}" for n_, c in MAP_STATES), unsafe_allow_html=True)
+    # 공정별 현재 상태 타일
+    st.subheader("공정별 현재 상태")
+    st.caption("막대 = 규격(LSL~USL) 범위, 흰 막대 = 지금 값의 위치. 초록 안쪽이면 정상, 주황에 닿으면 근접, 빨강이면 이탈")
+    html = [OVERVIEW_CSS]
+    last_b = None
+    for (b_, s_, l_) in all_lines():
+        if b_ != last_b:
+            html.append(f'<div class="bh">{b_}</div>')
+            last_b = b_
+        tiles = "".join(_tile_html((b_, s_, l_, param), data[(b_, s_, l_, param)], window) for param in PARAMS)
+        html.append(f'<div class="orow"><div class="orl"><b>{s_}</b><small>{l_}</small></div><div class="tiles">{tiles}</div></div>')
+    st.markdown("".join(html), unsafe_allow_html=True)
 
     # 진행 중 경고
     st.subheader("지금 진행 중인 경고")
