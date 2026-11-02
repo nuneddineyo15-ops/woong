@@ -60,15 +60,12 @@ h3 { letter-spacing:.02em; }
 .ln { width:30px; text-align:center; padding:2px 0; border:1px solid; border-radius:6px; font-size:12px; font-weight:700; color:#f1f5f9; }
 .ps { color:#94a3b8; font-size:12px; margin-bottom:4px; } .ps b { color:#e2e8f0; }
 
-/* 공정 상세: 흐름도 */
+/* 공정 상세: 흐름도(조 = 버튼) */
 .lh { display:flex; gap:14px; align-items:baseline; margin:14px 0 6px; font-size:13px; } .lh b { color:#e2e8f0; font-size:14px; }
-.fl { display:grid; gap:14px; }
-.nd { position:relative; background:rgba(18,26,43,.72); border:1px solid; border-radius:10px; padding:7px 9px; }
-.nd:not(:last-child)::after { content:"›"; position:absolute; right:-12px; top:38%; color:#475569; font-size:16px; }
-.nh { display:flex; justify-content:space-between; align-items:center; font-size:11px; color:#94a3b8; margin-bottom:4px; }
-.nh i { width:8px; height:8px; border-radius:50%; display:inline-block; }
-.nv { display:flex; justify-content:space-between; font-size:11px; line-height:1.5; }
-.nv b { font-family:'Orbitron',sans-serif; font-size:12px; font-weight:500; }
+[class*="st-key-nd-"] button { height:auto; min-height:0; padding:7px 10px; justify-content:flex-start;
+  background:rgba(18,26,43,.72); }
+[class*="st-key-nd-"] button:hover { background:rgba(34,211,238,.08); }
+[class*="st-key-nd-"] button p { font-size:12px; line-height:1.55; text-align:left; margin:0; }
 </style>
 """
 

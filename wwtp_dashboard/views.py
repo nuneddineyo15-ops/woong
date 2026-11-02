@@ -145,25 +145,14 @@ def overview():
 
 
 # ───────────────────────── 2. 공정 상세 ─────────────────────────
-def _node_html(plant, b, p, l, tank, params) -> tuple[str, int]:
-    rows, worst = "", NONE_RANK
-    for prm in params:
-        i = plant.find(b, p, l, tank, prm)
-        rk = int(plant.now_rank[i])
-        worst = min(worst, rk)
-        col = DIM if rk >= NONE_RANK else _color(rk)
-        rows += f'<div class="nv" style="color:{col}"><span>{prm}</span><b>{plant.V[i, -1]:.2f}</b></div>'
-    c = _color(worst)
-    glow = f"box-shadow:0 0 10px {c}66;" if worst < NONE_RANK else ""
-    return (
-        f'<div class="nd" style="border-color:{c}aa;{glow}"><div class="nh"><span>{tank}</span>'
-        f'<i style="background:{c}"></i></div>{rows}</div>'
-    ), worst
+def _select_node(line: str, tank: str):
+    cur = st.session_state.get("proc_sel")
+    st.session_state["proc_sel"] = None if cur == (line, tank) else (line, tank)
 
 
 def process():
     plant, window = _ctx()
-    _header("공정 상세", "계열별 흐름도 — 색이 변한 조를 아래에서 선택해 센서 그래프를 확인하세요")
+    _header("공정 상세", "계열별 흐름도 — 조(박스)를 누르면 바로 아래에 센서 그래프가 펼쳐져요 (다시 누르면 접힘)")
 
     jump = st.session_state.pop("_jump", None)
     if jump:
@@ -173,37 +162,56 @@ def process():
     b = c[0].selectbox("건물", BUILDINGS, key="proc_b")
     p = c[1].selectbox("공정", PROCESSES, key="proc_p")
     tanks = tanks_of(p)
-    names = [t[0] for t in tanks]
 
-    worst_of = (NONE_RANK, LINES[0], names[0])
-    blocks = []
+    # 조(노드)별 상태 · 현재값
+    info, worst_of = {}, (NONE_RANK, None)
     for l in LINES:
-        nodes, line_worst, n_bad = [], NONE_RANK, 0
         for tank, stage, params in tanks:
-            html, w = _node_html(plant, b, p, l, tank, params)
-            nodes.append(html)
-            line_worst = min(line_worst, w)
-            n_bad += w < NONE_RANK
-            if w < worst_of[0]:
-                worst_of = (w, l, tank)
-        extra = f" · 이상 {n_bad}개 조" if n_bad else ""
-        head = f'<div class="lh"><b>{l}</b><span style="color:{_color(line_worst)}">● {_status_text(line_worst)}{extra}</span></div>'
-        blocks.append(head + f'<div class="fl" style="grid-template-columns:repeat({len(tanks)},1fr)">{"".join(nodes)}</div>')
-    st.markdown("".join(blocks), unsafe_allow_html=True)
+            vals, worst = [], NONE_RANK
+            for prm in params:
+                i = plant.find(b, p, l, tank, prm)
+                worst = min(worst, int(plant.now_rank[i]))
+                vals.append((prm, plant.V[i, -1]))
+            info[(l, tank)] = (worst, vals)
+            if worst < worst_of[0]:
+                worst_of = (worst, (l, tank))
 
     if st.session_state.get("_last_proc") != (b, p):          # 공정을 바꾸면 가장 나쁜 조를 자동 선택
         st.session_state["_last_proc"] = (b, p)
-        st.session_state["proc_l"], st.session_state["proc_t"] = worst_of[1], worst_of[2]
-    st.divider()
-    st.subheader("조 상세")
-    s = st.columns([1.6, 4])
-    l = s[0].radio("계열", LINES, key="proc_l", horizontal=True)
-    t = s[1].radio("조", names, key="proc_t", horizontal=True)
-    tank, stage, params = next(x for x in tanks if x[0] == t)
-    cols = st.columns(len(params))
-    for col, prm in zip(cols, params):
-        with col:
-            _sensor_card(plant, plant.find(b, p, l, tank, prm), window, height=260, tag=f"{b} · {p} · {l} · {tank}")
+        st.session_state["proc_sel"] = worst_of[1]
+    sel = st.session_state.get("proc_sel")
+
+    css = []
+    for li, l in enumerate(LINES):
+        ws = [info[(l, t[0])][0] for t in tanks]
+        n_bad = sum(w < NONE_RANK for w in ws)
+        extra = f" · 이상 {n_bad}개 조" if n_bad else ""
+        st.markdown(
+            f'<div class="lh"><b>{l}</b><span style="color:{_color(min(ws))}">● {_status_text(min(ws))}{extra}</span>'
+            f'<span style="color:#475569;font-size:11px">흐름: 왼쪽 → 오른쪽</span></div>',
+            unsafe_allow_html=True,
+        )
+        cols = st.columns(len(tanks), gap="small")
+        for ti, (tank, stage, params) in enumerate(tanks):
+            w, vals = info[(l, tank)]
+            icon = "🟢" if w >= NONE_RANK else KIND[kind_by_rank(w)]["icon"]
+            label = f"{icon} **{tank}**  \n" + "  \n".join(f"{prm}  {v:.2f}" for prm, v in vals)
+            key = f"nd-{li}-{ti}"
+            with cols[ti]:
+                st.button(label, key=key, on_click=_select_node, args=(l, tank), width="stretch")
+            is_sel = sel == (l, tank)
+            glow = f"box-shadow:0 0 10px {_color(w)}66;" if w < NONE_RANK else ""
+            border = "2px solid #22d3ee" if is_sel else f"1px solid {_color(w)}aa"
+            bg = "background:rgba(34,211,238,.10) !important;" if is_sel else ""
+            css.append(f".st-key-{key} button{{border:{border} !important;{glow}{bg}}}")
+
+        if sel and sel[0] == l:                                   # 선택한 조의 그래프를 해당 계열 바로 아래에
+            tank, stage, params = next(x for x in tanks if x[0] == sel[1])
+            st.markdown(f"##### ▼ {b} · {p} · {l} · {tank}")
+            for col, prm in zip(st.columns(len(params)), params):
+                with col:
+                    _sensor_card(plant, plant.find(b, p, l, tank, prm), window, height=260)
+    st.markdown("<style>" + "".join(css) + "</style>", unsafe_allow_html=True)
     _legend()
 
 
