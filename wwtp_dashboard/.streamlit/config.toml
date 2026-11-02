@@ -8,3 +8,6 @@ borderColor = "#1e293b"
 
 [client]
 toolbarMode = "minimal"
+
+[browser]
+gatherUsageStats = false
