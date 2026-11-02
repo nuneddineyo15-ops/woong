@@ -52,7 +52,7 @@ def _header(title: str, sub: str):
     st.caption(f"{sub}  |  데이터 기준 {last:%Y-%m-%d %H:%M} (데모)")
 
 
-def _sensor_card(key, df, window: int, height: int = 220, tag: str = ""):
+def _sensor_card(key, df, window: int, height: int = 220, tag: str = "", note: str = ""):
     """작은 카드 1개: 이름 + 현재값 + 상태 + 차트."""
     b, s, l, param = key
     p = PARAMS[param]
@@ -68,11 +68,13 @@ def _sensor_card(key, df, window: int, height: int = 220, tag: str = ""):
             label = param if p["unit"] == param else f"{param} ({p['unit']})"
             st.metric(label, f"{cur:.2f}", f"{cur - prev:+.2f} /1h", delta_color="off")
         with top[1]:
-            st.markdown(_badges(kinds))
+            st.markdown(_badges(kinds) if kinds or not hist else ":gray[**● 해소됨**]")
             line2 = f"규격 {spec_text(p)}  ·  σ {df['std'].iloc[-1]:.2f}"
             if hist:
                 line2 += "  ·  이력: " + ", ".join(KIND[k]["label"] for k in hist)
             st.caption(line2)
+        if note:
+            st.caption(note)
         st.plotly_chart(
             sensor_figure(df, param, window, height),
             width="stretch", key=f"card-{key}-{window}-{tag}", config={"displayModeBar": False},
@@ -162,13 +164,13 @@ def overview():
 # ───────────────────────── 2. 경고 센터 ─────────────────────────
 def alerts():
     data, window = _ctx()
-    _header("🚨 경고 센터", "경고가 걸린 항목만 모아보기")
+    _header("🚨 경고 센터", "경고가 걸린 항목을 그래프와 함께 쭉 훑어보기")
     ev = alert_events(data, window)
     if ev.empty:
         st.success(f"최근 {st.session_state.get('range', '6시간')} 동안 경고가 없습니다.")
         return
 
-    f1, f2, f3 = st.columns([2.2, 1.4, 1.4])
+    f1, f2, f3 = st.columns([2.2, 1.4, 1.4], vertical_alignment="bottom")
     kinds = f1.multiselect("경고 유형", list(KIND), default=list(KIND), format_func=lambda k: f"{KIND[k]['icon']} {KIND[k]['label']}")
     bld = f2.selectbox("건물", ["전체"] + list(PLANT))
     only_active = f3.toggle("진행 중만 보기", value=False)
@@ -178,48 +180,38 @@ def alerts():
         ev = ev[[k[0] == bld for k in ev["key"]]]
     if only_active:
         ev = ev[ev["active"]]
-    ev = ev.reset_index(drop=True)
     if ev.empty:
         st.info("조건에 맞는 경고가 없습니다.")
         return
 
-    st.caption(f"{len(ev)}건 — 행을 클릭하면 아래에 상세 추이가 나옵니다.")
-    table = pd.DataFrame(
-        {
-            "상태": ["🔥 진행중" if a else "✔ 해소" for a in ev["active"]],
-            "유형": [f"{KIND[k]['icon']} {KIND[k]['label']}" for k in ev["kind"]],
-            "위치": [line_label(*k[:3]) for k in ev["key"]],
-            "항목": [k[3] for k in ev["key"]],
-            "현재값": [f"{v:.2f} {u}" for v, u in zip(ev["now"], ev["unit"])],
-            "규격": ev["spec"],
-            "최초": ev["first"].dt.strftime("%H:%M"),
-            "최근": ev["last"].dt.strftime("%H:%M"),
-            "지속(분)": ev["minutes"],
-        }
-    )
-    sel = st.dataframe(
-        table, hide_index=True, width="stretch", height=min(38 * len(table) + 40, 330),
-        on_select="rerun", selection_mode="single-row", key="alert-table",
-    )
-    rows = sel.selection.rows
-    i = rows[0] if rows and rows[0] < len(ev) else 0
-    row = ev.iloc[i]
-    key, kind = row["key"], row["kind"]
-    df = data[key]
-    p = PARAMS[key[3]]
+    # 센서당 카드 1장: 같은 센서의 여러 경고는 한 카드에 합침 (진행 중 → 심각도 → 최근 순)
+    cards = []
+    for key, g in ev.groupby("key", sort=False):
+        cards.append(
+            dict(
+                key=key,
+                active=bool(g["active"].any()),
+                rank=int(g["rank"].min()),
+                last=g["last"].max(),
+                note="  |  ".join(
+                    f"{KIND[r.kind]['icon']} {KIND[r.kind]['label']} {r.first:%H:%M}→{r.last:%H:%M} ({r.minutes}분)"
+                    for r in g.sort_values("rank").itertuples()
+                ),
+            )
+        )
+    cards.sort(key=lambda c: (not c["active"], c["rank"], -c["last"].value))
 
-    st.divider()
-    st.subheader(f"{KIND[kind]['icon']} {line_label(*key[:3])} · {key[3]}")
-    st.caption(f"{KIND[kind]['label']}  |  {'진행 중' if row['active'] else '해소됨'}  |  최초 {row['first']:%H:%M} → 최근 {row['last']:%H:%M}  ({row['minutes']}분)")
-    w = df.iloc[-window:]
-    m = st.columns(5)
-    m[0].metric("현재값", f"{df['value'].iloc[-1]:.2f} {p['unit']}")
-    m[1].metric("규격", spec_text(p))
-    m[2].metric("구간 평균", f"{w['value'].mean():.2f}")
-    m[3].metric("현재 σ(60분)", f"{df['std'].iloc[-1]:.2f}", f"기준 {p['std_limit']:g}", delta_color="off")
-    m[4].metric("구간 최대/최소", f"{w['value'].max():.1f} / {w['value'].min():.1f}")
-    st.plotly_chart(sensor_figure(df, key[3], window, 380), width="stretch", key=f"alert-detail-{key}-{window}", config={"displayModeBar": False})
+    n_act = sum(c["active"] for c in cards)
+    st.caption(f"경고 센서 {len(cards)}개 (진행 중 {n_act} · 해소 {len(cards) - n_act})  —  아래로 스크롤하며 확인하세요")
     _legend()
+
+    cols = st.columns(2)
+    for i, c in enumerate(cards):
+        with cols[i % 2]:
+            _sensor_card(
+                c["key"], data[c["key"]], window, height=260,
+                tag=f"{line_label(*c['key'][:3])}", note=c["note"],
+            )
 
 
 # ───────────────────────── 3. 공정 탐색 ─────────────────────────
