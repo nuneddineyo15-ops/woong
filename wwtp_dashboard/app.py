@@ -72,6 +72,7 @@ h3 { letter-spacing:.02em; }
 pages = {
     "overview": st.Page(views.overview, title="종합 현황", icon="🏭", default=True),
     "process": st.Page(views.process, title="공정 상세", icon="🔎", url_path="process"),
+    "compare": st.Page(views.compare, title="한눈에 비교", icon="📊", url_path="compare"),
     "alerts": st.Page(views.alerts, title="경고 센터", icon="🚨", url_path="alerts"),
 }
 st.session_state["_pages"] = pages
