@@ -73,6 +73,20 @@ def _sensor_card(plant, i: int, window: int, height: int = 240, tag: str = "", n
                         key=f"c-{i}-{window}-{tag}", config={"displayModeBar": False})
 
 
+def _incident_charts(plant, x: dict, window: int, prefix: str):
+    """사고 1건의 센서 그래프 (최대 3개) + 나머지 센서 목록."""
+    sids = x["sids"][:3]
+    for col, i in zip(st.columns(len(sids)), sids):
+        with col:
+            m = plant.meta.iloc[i]
+            ks = ", ".join(KIND[k]["label"].split("(")[0] for k in plant.window_kinds(i, window))
+            st.caption(f"**{m.tank} · {m.param}**  —  {ks}")
+            st.plotly_chart(sensor_figure(plant, i, window, 210), width="stretch",
+                            key=f"{prefix}-{i}-{window}", config={"displayModeBar": False})
+    if len(x["sids"]) > 3:
+        st.caption("외 센서: " + ", ".join(f"{plant.meta['tank'].iat[i]} {plant.meta['param'].iat[i]}" for i in x["sids"][3:]))
+
+
 # ───────────────────────── 1. 종합 현황 ─────────────────────────
 def overview():
     plant, window = _ctx()
@@ -90,14 +104,14 @@ def overview():
     if not inc:
         st.success("진행 중인 경고가 없습니다. 전 공정 정상입니다.")
     else:
-        st.caption(f"같은 계열·같은 조의 경고는 1건으로 묶었어요. 진행 중 {len(inc)}건")
-        rows = "".join(
-            f'<div class="ir"><span class="ik" style="color:{_color(x["rank"])}">● {_status_text(x["rank"])}</span>'
-            f'<span class="it">{x["title"]}</span><span class="iw">{x["what"]}</span>'
-            f'<span class="ic">센서 {len(x["sids"])}개</span><span class="id">{x["first"]:%H:%M}~</span></div>'
-            for x in inc[:8]
-        )
-        st.markdown(f'<div class="ilist">{rows}</div>', unsafe_allow_html=True)
+        st.caption(f"진행 중 {len(inc)}건 (같은 계열·같은 조의 경고는 1건으로 묶었어요) — 줄을 누르면 그래프가 펼쳐져요")
+        for n, x in enumerate(inc[:8]):
+            label = (
+                f"{KIND[kind_by_rank(x['rank'])]['icon']} {_status_text(x['rank'])}  ·  {x['title']}  ·  "
+                f"{x['what']}  ·  센서 {len(x['sids'])}개  ·  {x['first']:%H:%M}~"
+            )
+            with st.expander(label, expanded=(n == 0)):
+                _incident_charts(plant, x, window, f"ov{n}")
         if len(inc) > 8:
             st.caption(f"외 {len(inc) - 8}건 — 경고 센터에서 모두 볼 수 있어요")
         st.page_link(st.session_state["_pages"]["alerts"], label="경고 센터에서 그래프와 함께 보기", icon="🚨")
@@ -245,17 +259,7 @@ def alerts():
                 ),
                 unsafe_allow_html=True,
             )
-            sids = x["sids"][:3]
-            for col, i in zip(st.columns(len(sids)), sids):
-                with col:
-                    m = plant.meta.iloc[i]
-                    ks = ", ".join(KIND[k]["label"].split("(")[0] for k in plant.window_kinds(i, window))
-                    st.caption(f"**{m.tank} · {m.param}**  —  {ks}")
-                    st.plotly_chart(sensor_figure(plant, i, window, 210), width="stretch",
-                                    key=f"a-{i}-{window}", config={"displayModeBar": False})
-            if len(x["sids"]) > 3:
-                st.caption("외 센서: " + ", ".join(
-                    f"{plant.meta['tank'].iat[i]} {plant.meta['param'].iat[i]}" for i in x["sids"][3:]))
+            _incident_charts(plant, x, window, "a")
     if shown < len(inc):
         if st.button(f"더 보기 ({len(inc) - shown}건 남음)"):
             st.session_state["_alert_n"] = shown + 8
