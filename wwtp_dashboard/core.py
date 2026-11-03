@@ -92,16 +92,17 @@ RATIO_RULES = [                       # 약품 투입이 늘었는데 고분자�
 ]
 RATIO_K, RATIO_LAG = 5.0, 2           # 고분자 ÷ 약품 비율이 평소보다 5σ 낮음, 반응조→응집조 10분 지연
 
+# sev: 신호등 단계 — red = 조치 필요(규격 이탈·설비/공정 이상), yellow = 확인 필요(근접·센서 이상 의심·조기경보)
 KIND = {
-    "SPEC": dict(label="스펙 이탈", color="#ef4444", icon="🔴", rank=0),
-    "NEAR": dict(label="상하한 근접", color="#f97316", icon="🟠", rank=1),
-    "HOLD": dict(label="1시간 Hold", color="#3b82f6", icon="🔵", rank=2),
-    "STD":  dict(label="표준편차 초과", color="#a855f7", icon="🟣", rank=3),
+    "SPEC": dict(label="스펙 이탈", color="#ef4444", icon="🔴", rank=0, sev="red"),
+    "NEAR": dict(label="상하한 근접", color="#f97316", icon="🟠", rank=1, sev="yellow"),
+    "HOLD": dict(label="1시간 Hold", color="#3b82f6", icon="🔵", rank=2, sev="yellow"),
+    "STD":  dict(label="표준편차 초과", color="#a855f7", icon="🟣", rank=3, sev="yellow"),
     # 공정 연관 규칙은 원인을 더 구체적으로 짚으므로 동료 대비 이탈보다 앞 순위(칸 색·정렬 우선)
-    "VALVE": dict(label="개도-투입 불일치", color="#92400e", icon="🟤", rank=4),
-    "AIR":  dict(label="DO↓ 공기개도↑", color="#0891b2", icon="💨", rank=5),
-    "RATIO": dict(label="고분자 부족(투입 비율)", color="#4f46e5", icon="⚗️", rank=6),
-    "PEER": dict(label="동료 대비 이탈(조기경보)", color="#ec4899", icon="🩷", rank=7),
+    "VALVE": dict(label="개도-투입 불일치", color="#92400e", icon="🟤", rank=4, sev="red"),
+    "AIR":  dict(label="DO↓ 공기개도↑", color="#0891b2", icon="💨", rank=5, sev="red"),
+    "RATIO": dict(label="고분자 부족(투입 비율)", color="#4f46e5", icon="⚗️", rank=6, sev="red"),
+    "PEER": dict(label="동료 대비 이탈(조기경보)", color="#ec4899", icon="🩷", rank=7, sev="yellow"),
 }
 NONE_RANK = 99
 

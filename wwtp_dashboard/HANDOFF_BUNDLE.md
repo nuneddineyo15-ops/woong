@@ -18,8 +18,10 @@
 | 결측 / 점검 마스킹 / 기준선 롤링 | ⬜ 미구현 (4-4) |
 | 5분 단위 실시간 갱신 | ⬜ 미구현 (4-4) |
 | 사내망 반입 확인 (pip, 폰트) | ⬜ 확인 필요 (7번) |
+| 전체 현황 디자인 (지시서 6-0) | ✅ 완료 — 요약 바 · 신호등 노드 · 이상점 캔버스 · 트렌드 4단, 클릭 연동 확인 |
+| 다른 탭(공정 상세 · 한눈에 비교 · 경고 센터) 지시서 반영 | ⬜ 미착수 — 이전 HMI 개편 상태 그대로 (6-0 아래 '열린 결정') |
 
-**다음에 할 일은 4번 순서대로.** 시작 전에 10번의 질문 목록을 사용자에게 물어볼 것.
+**다음에 할 일은 4번 순서대로.** 시작 전에 10번의 질문 목록을 사용자에게 물어볼 것. 화면 작업이 먼저라면 6-0 의 '열린 결정'부터 사용자에게 확인할 것.
 
 ## 1. 목적
 
@@ -54,8 +56,8 @@
 |---|---|
 | `app.py` | 진입점. 상단 내비(탭), 헤더 바, 조회 구간 슬라이더, 전역 CSS(밝은 현장 모니터 테마) |
 | `core.py` | **설비 구조, 규격, 데이터 생성/로딩, 이상 감지, 사고 묶기.** 데이터 교체는 여기서만 |
-| `charts.py` | Plotly 센서 차트 (규격선, 근접/이탈 영역, 이상 구간 음영, 동료 범위) |
-| `views.py` | 화면 4개 |
+| `charts.py` | Plotly 차트 2종: `trend_figure`(전체 현황 ④ 트렌드 — 영역 차트 + 임계치 점선 + 빨강/노랑 음영 + 큰 붉은 점 + 경고 문구), `sensor_figure`(공정 상세·경고 센터 — 선 + 근접/이탈 가로 띠 + 경고 종류별 세로 음영 + 동료 범위) |
+| `views.py` | 화면 4개. 전체 현황은 `_banner`(① 요약 바) · `_flow`(② 노드·화살표) · `_canvas`(③ 캔버스) · `_detail`(④ 트렌드), 선택 상태는 `st.session_state["ov_sel"]` 하나로 연동 |
 | `.streamlit/config.toml` | 밝은 테마 + 사용 통계 전송 끄기. **폴더째 유지** |
 | `requirements.txt` | streamlit, plotly, pandas, numpy |
 | `CLAUDE.md` | 이 폴더에서 Claude를 시작하면 자동으로 이 문서를 읽게 하는 파일 + 작업 규칙 |
@@ -137,19 +139,42 @@ streamlit run app.py
 
 사용자가 직접 불만을 말해서 바뀐 부분이 많음. **되돌리지 말 것.**
 
-1. **전체 현황** (2026-11-04 사용자 요청으로 다시 만듦 — "공정 운전 데이터를 한눈에, 이상값은 눈에 확 띄게, 현장 모니터처럼 밝게")
-   - 위: KPI 타일 6개(정상/전체 + 경고 종류별 개수, 걸린 종류는 타일 전체가 경고 색, 스펙 이탈은 깜빡임) → **진행 중 경고 띠**(사고 1건 = 색 칩 1개)
-   - 가운데(핵심): 공정별 **운전 보드**. 행 = 동·계열(3×4), 열 = 공정 흐름 순서의 조·항목, 칸 = **현재값 숫자**. 이상 센서 칸은 경고 색으로 칠하고, 스펙 이탈은 깜빡이며, 조회 구간 안에서 해소된 칸은 회색. ▲▼ = 1시간 새 규격폭의 10%(`views.ARROW_RATIO`)를 넘게 변함. 마우스를 올리면 규격·상태·1시간 변화. 유기는 한 줄 전체, 나머지 공정 3개는 나란히. 보드 머리의 "1동 ›" 등 버튼으로 공정 상세로 이동
-   - 아래: "경고 그래프"(진행 중 사고 expander, 모두 펼치기 토글) — 예전 "지금 확인할 곳"을 아래로 옮긴 것
-   - ❌ *예전 히트맵은 사용자가 "뭘 봐야 하는지 모르겠다"고 해서 제거함.* 색만 있고 값·규격·여유가 안 보였기 때문. 운전 보드는 **칸마다 숫자를 그대로 보여 주고**, 정상 칸은 흰색이라 경고 칸만 튀도록 해서 그 문제를 피함. 숫자를 빼고 색만 남기는 쪽으로 되돌리지 말 것.
-2. **공정 상세** — 계열 4개를 **공정 흐름 순서의 조 박스**로 나열(박스 = 버튼, 상태 아이콘/현재값). **이상 있는 조는 자동 펼침**, 박스를 누르면 해당 계열 바로 아래에 센서 그래프 펼침/접힘. "이상 조 모두 펼치기/모두 접기" 버튼.
-   - 처음엔 라디오로 조를 골라야 했는데 "클릭하기 힘들다"고 해서 박스 직접 클릭 + 자동 펼침으로 바꿈.
-3. **한눈에 비교** — 항목 하나를 고르면 **계열 4 × 조 N개를 서브플롯 격자로 한 화면에** 보여줌(클릭 없이). 같은 열은 y축을 맞춰 혼자 튀는 센서가 눈에 띔. 선 색 = 현재 상태. 기본 항목은 그래프가 가장 많은 항목.
+### 6-0. 디자인 지시서 (2026-11-04 사용자, 화면 작업의 기준)
+> 역할: 대규모 산업 공정·수처리 시설 모니터링의 수석 UI/UX 디자이너 겸 Streamlit/Plotly 개발자.
+> 목표: **격자형 카드 나열 금지. 3초 안에 어떤 공정에 이상점이 생겼는지 즉시 알 수 있는 공정 흐름(Process Flow) 중심 대시보드.**
+> 1. **공정 신호등 노드** — 공정 파이프라인 노드마다 Green/Yellow/Red. Red·Yellow 노드는 테두리·배경에 은은한 글로우 애니메이션.
+> 2. **차트 이상점** — 임계치를 넘는 점은 Plotly 위 큰 붉은 점 + 상단 경고 텍스트 자동 표시. 정상 범위를 벗어난 구간은 배경 붉은 음영.
+> 3. **이벤트 스택** — 화면 최상단에 해결이 시급한 주요 이상점 요약 바 (예: "🚨 [STAGE 03] 호기성 폭기조 DO 농도 급감 (1.2 mg/L) - 조치 필요"). 누르면 관련 차트·노드 연동.
+> 4. **영향 화살표** — 앞 단계 공정에 이상이 생기면 다음 단계로 가는 화살표가 주황/빨강.
+> 구조: Core = 이상 데이터가 든 시계열 생성 · Charts = 영역 차트 + 임계치 점선 + 이상점 마커 · Views = 메인 흐름 노드 → 이상점 요약 캔버스 → 공정 상세 트렌드 3단.
+>
+> 이 지시서 전에 시도한 것(사용자가 모두 반려): 밝은 운전 보드(표), HMI 패널 + 알람 기록, 디자인 캔버스 시안 5종(계통도·브리핑·규격 위치 띠·배치도·기록계).
+>
+> 신호등 기준(구현 결정): **빨강 = 조치 필요** = 스펙 이탈 · 개도-투입 불일치 · DO↓ 공기개도↑ · 고분자 부족 / **노랑 = 확인 필요** = 상하한 근접 · Hold · 표준편차 초과 · 동료 대비 이탈 (`core.KIND[...]["sev"]`). 노드·요약 바는 **지금 걸려 있는** 경고로 판단하고, 빨강이 하나라도 있으면 빨강(순위 숫자보다 우선).
+
+1. **전체 현황** (2026-11-04 디자인 지시서 6-0 으로 다시 만듦) — 위에서 아래로 4단, 모두 같은 '선택'으로 연동:
+   - ① **주요 이상점 요약 바**(이벤트 스택, 최대 5줄): 시급한 순(빨강 → 노랑, 같은 단계면 경고 순위 → 최근). 문장 = `[STAGE nn] 공정 조 · 동 계열 탱크 항목 현상 (현재값 단위) — 조치/확인 필요`. 빨강 바는 맥박처럼 빛남. **누르면** 그 사고가 선택됨.
+   - ② **공정 흐름**: 공정(유기·무기1·무기2·산폐수)마다 한 줄, 조 종류 = 노드(STAGE 01…, 폭기조1~5·반응조1~3은 노드 하나). 노드 = 신호등(초록/노랑/빨강) + 이상 수/전체 + 대표 센서 현재값, 노랑·빨강은 글로우 애니메이션. 노드 사이 **영향 화살표**는 앞 노드가 노랑이면 주황, 빨강이면 빨강 + "영향". 오른쪽 위 동 필터(전체/1·2·3동). 노드를 **누르면** 그 노드가 선택됨.
+   - ③ **이상점 요약 캔버스**(Plotly): 세로 = 이상이 있었던 공정·조(흐름 순서), 가로 = 조회 구간. 사고마다 지속 막대 + 지금 점(진행 중 = 큰 색 점, 해소 = 회색 빈 점). **점을 누르면**(`on_select`) 그 사고가 선택됨. 같은 줄의 사고는 높이를 나눠 겹치지 않게 함.
+   - ④ **공정 상세 트렌드**: 선택된 사고(또는 노드)의 센서 최대 4개, `charts.trend_figure` — 영역 차트 + USL/LSL 점선 + 이상 구간 음영(빨강/노랑) + 임계치 밖 점 = 큰 붉은 점 + 위쪽 경고 문구.
+   - 선택된 바·노드·캔버스 점은 검정 테두리로 함께 강조. 아무것도 안 눌렀으면 가장 시급한 사고가 선택된 상태.
+   - 한계: Streamlit 이라 '주시(마우스 올림)'만으로는 연동 안 되고 클릭해야 함. 테스트 창에서 페이지를 새로 연 직후 캔버스 첫 클릭이 한 번 무시되는 현상을 봄(두 번째부터 정상) — 실제 브라우저에서 다시 확인 필요.
+   - ❌ *예전 히트맵은 사용자가 "뭘 봐야 하는지 모르겠다"고 해서 제거함.* 색만 있고 값·규격·여유가 안 보였기 때문. 지금 화면은 노드에 대표 값, 트렌드에 규격선을 같이 보여 줌.
+   - **열린 결정 (사용자 확인 필요, 2026-11-04 기준)**:
+     1. 차트 통일 — 경고 센터·공정 상세 그래프도 `trend_figure`(영역 차트) 로 바꿀지, 화면마다 지금처럼 둘지. 바꾸면 모양은 통일되지만 경고 종류별 색 구분과 동료 범위 띠가 없어짐. 사용자가 "전체 현황 그래프 아래는 연한 파랑으로 채워져 있는데 경고 센터엔 없다"고 물어봐서 이 차이를 설명했고, 아직 답 없음.
+     2. 신호등 기준 — 빨강/노랑 분류(6-0 끝)는 구현하며 정한 것. 사용자가 다르게 원하면 `core.KIND[...]["sev"]` 만 고치면 됨.
+     3. 나머지 탭에 지시서(6-0) 적용 여부와 범위.
+2. **공정 상세** — 계열 4개를 **공정 흐름 순서의 탱크**로 나열하고 탱크 사이를 **배관(→)**으로 이음(P&ID 처럼). 탱크 = 버튼(이름 + 항목별 현재값, 고정폭 숫자). 정상 탱크는 회색 테두리로 조용하게, 이상 탱크는 경고 색 테두리 + 왼쪽 굵은 띠 + 이상 항목만 굵은 경고 색. **이상 있는 조는 자동 펼침**, 탱크를 누르면 해당 계열 바로 아래에 센서 그래프 펼침/접힘. "이상 조 모두 펼치기/모두 접기" 버튼. 펼친 그래프 위에는 카드·metric 위젯 대신 한 줄 머리글(항목 · 큰 현재값 · 1시간 변화 · 상태, 아래 규격·σ·이력).
+   - 처음엔 라디오로 조를 골라야 했는데 "클릭하기 힘들다"고 해서 박스 직접 클릭 + 자동 펼침으로 바꿈. 탱크를 버튼으로 둔 이유도 이것(HTML 그림은 클릭이 안 됨).
+3. **한눈에 비교** — 항목 하나를 고르면 **계열 4 × 조 N개를 서브플롯 격자로 한 화면에** 보여줌(클릭 없이). 같은 열은 y축을 맞춰 혼자 튀는 센서가 눈에 띔. 선 색 = 현재 상태, 제목 옆 색 사각형 + 경고 이름. 기본 항목은 그래프가 가장 많은 항목.
    - 센서가 많아서 "하나씩 클릭"이 불가능하다는 요구에서 나온 핵심 페이지.
-4. **경고 센터** — 사고 단위 카드를 **쭉 나열하고 스크롤**(표에서 행을 클릭해야 그래프가 나오던 방식은 사용자가 싫어해서 변경). 카드 안에 센서 그래프(최대 3개). 유형/건물/공정/진행 중 필터, "더 보기".
-5. **차트(`charts.py`)**: 추이선 + USL/LSL 점선 + 근접(주황)/이탈(빨강) 배경 + 이상 구간 세로 음영(Hold 파랑, σ 보라, 동료 이탈 분홍) + **동료 범위(회색 띠)와 중앙값(점선)**. 동료 범위가 있어야 "어디서 벌어졌는지" 보임.
-6. **디자인**: **밝은 현장 모니터 스타일**(2026-11-04 사용자 요청으로 다크 관제 테마에서 바꿈. 연회색 바탕, 흰 카드, 청록 포인트 `#0e7490`, 숫자는 Orbitron 폰트, 와이드 모니터용 최대 폭 1920px). 사이드바 없음, 상단 탭 + 헤더 바(진행 중 사고 건수 표시). 사용자가 *"AI가 만들면 다 왼쪽 회색 사이드바에 똑같다"* 고 불평해서 의도적으로 일반 Streamlit 기본 모양을 피함. 이 방향 유지. 테마는 `.streamlit/config.toml`, 화면 CSS는 `app.py`의 `CSS`, 차트는 `charts.style()`.
+4. **경고 센터** — 위: **알람 타임라인**(사고마다 한 줄, 경고 종류별 색 막대로 언제부터 얼마나, 점선 = 지금). 아래: 사고별로 굵은 윗선 + 왼쪽 색 막대 머리(시각 · 위치 · 조/항목 · 진행 중/해소 · 경고 종류) 아래 센서 그래프(최대 3개)를 **쭉 나열하고 스크롤**(표에서 행을 클릭해야 그래프가 나오던 방식은 사용자가 싫어해서 변경, 카드 상자도 없앰). 유형/건물/공정/진행 중 필터, "더 보기".
+5. **차트(`charts.py`)** — 지금 두 가지가 공존함(의도된 차이, 통일 여부는 위 1번 전체 현황의 열린 결정):
+   - `trend_figure` (전체 현황 ④): 지시서대로 **영역 차트**(선 아래 연한 청록 채움) + USL/LSL 붉은 점선 + 이상 구간 세로 음영은 신호등 2색(빨강 = 조치 필요, 노랑 = 확인 필요) + 임계치 밖 점 = 큰 붉은 점 + 위쪽 경고 문구 + 동료 중앙값 점선.
+   - `sensor_figure` (공정 상세·경고 센터): 선만(채움 없음) + USL/LSL 점선 + 근접(주황)/이탈(빨강) **가로 띠** + 이상 구간 세로 음영을 **경고 종류별 색**(Hold 파랑, σ 보라, 동료 이탈 분홍, 개도-투입 갈색 …) + **동료 범위(회색 띠)와 중앙값(점선)** + 작은 빨강/주황 점. 동료 범위가 있어야 "어디서 벌어졌는지" 보임. 가로 띠·회색 띠가 이미 깔려 있어 여기에 영역 채우기를 더하면 색이 겹침.
+6. **디자인**: **밝은 현장 모니터 + HMI 패널 스타일**(2026-11-04 사용자 요청으로 다크 관제 테마에서 바꿈). 연회색 바탕, 직각·1px 선·그림자 없음, 헤더는 상자 없이 굵은 밑줄, 숫자는 고정폭 글꼴(D2Coding/Consolas, 사내 PC 기본 글꼴 — 외부 CDN 아님), 탭 아이콘은 Streamlit 내장 Material 아이콘(이모지 아님), 와이드 모니터용 최대 폭 1920px. 사이드바 없음, 상단 탭 + 헤더(진행 중 사고 건수). 사용자가 *"AI가 만들면 다 왼쪽 회색 사이드바에 똑같다"* 고 불평해서 일반 Streamlit 기본 모양을 피함. 테마는 `.streamlit/config.toml`, 화면 CSS는 `app.py`의 `CSS`, 차트는 `charts.style()`.
 7. 색상 의미 고정: 빨강 스펙 이탈 / 주황 근접 / 파랑 Hold / 보라 σ 초과 / 분홍 동료 이탈 / 갈색 개도-투입 불일치 / 하늘색 DO↓ 공기개도↑ / 남색 고분자 부족 / 초록 정상 / 회색 해소. (색은 `core.KIND` 하나에서만 정의 — 보드 칸·차트 음영이 여기서 가져감)
+8. **템플릿 금지 원칙** (2026-11-04 사용자 지시, 모든 화면에 적용): 카드·KPI 타일 네모칸 나열, 둥근 모서리+그림자, 그라데이션, 이모지 아이콘 남발, 똑같은 너비 그리드 금지. 현장 HMI·계장 도면처럼 선·글자 크기·공정 흐름으로 구분하고, 정상은 조용하게·이상만 강하게. 4개 탭 모두 적용함(전체 현황은 이후 6-0 지시서로 다시 만듦, 공정 상세 배관 흐름도, 경고 센터 타임라인, 한눈에 비교 이모지 제거). `core.KIND` 의 `icon`(이모지)은 이제 화면에서 쓰지 않음.
 
 ## 7. 사내망 환경 주의
 
@@ -166,7 +191,7 @@ streamlit run app.py
   **VALVE**(1동 무기1 A 반응조2: CaOH2개도↑ 투입↓ = 소석회 막힘. 3동 유기A 후탈조 외부탄소원 감소도 개도 변화 없이 줄어서 VALVE 로도 잡힘),
   **AIR**(3동 유기B 폭기조3 DO↓ 공기개도↑), **RATIO**(2동 무기2 D: AFR·FR 50%↑, Polymer 그대로 → 고분자 부족, 뒤이어 침전조 SS↑).
 - 2026-11-04 측정(심지 않은 센서 기준): 앞 7일 하루 평균 NEAR 1.1 · PEER 0.3 · 나머지 0. 최근 1일 VALVE·AIR·PEER 각 1건(VALVE·AIR 는 짝 센서 쪽이 같이 표시된 것. AIR 1건은 2동 유기A 폭기조3 DO 급락 때 공기개도가 우연히 같이 올라 걸린 것).
-- 화면 확인: 4개 탭 모두 예외 없이 렌더링, 전체 현황 보드의 "1동 ›" 등 버튼 → 공정 상세 이동, 이상 센서 수 = 보드의 경고 색 칸 수, 조 박스 클릭 → 그래프 펼침/접힘.
+- 화면 확인: 4개 탭 모두 예외 없이 렌더링, 전체 현황: 요약 바·노드·캔버스 점을 각각 눌러 노드 강조와 ④ 트렌드가 같은 사고로 바뀌는지, 노드 신호등이 지금 경고 기준과 맞는지, 탱크 클릭 → 그래프 펼침/접힘, 경고 센터 타임라인 막대 = 사고 목록과 같은 건수.
 
 ## 9. 작업 원칙 (사내 Claude에게)
 
@@ -196,6 +221,7 @@ streamlit run app.py
 - 데이터를 **전부 메모리에 올리는 구조**. 센서가 수천 개 이상이 되면 DB/배치로 감지를 옮겨야 함.
 - 한눈에 비교는 **건물 1개 × 공정 1개** 단위. 전 건물 동시 비교, **자동 순회 모드**(관제실 모니터용)는 제안만 했고 미구현.
 - Google Fonts(Orbitron) 외부 의존 1건 (막혀도 기본 폰트로 동작).
+- 전체 현황 연동은 클릭으로만 됨(Streamlit 은 마우스 올림 이벤트를 서버로 보내지 않음). 캔버스 점 첫 클릭이 한 번 무시되는 현상을 테스트 창에서 봄 — 실제 브라우저 재확인 필요.
 - `STAGE_SPEC`의 규격, `ANOMALIES`는 **데모용 가짜 값**. 새 개도 태그·약품 농도 단위·AFR/FR 투입 위치도 데모 가정.
 - 연관 규칙의 평소 관계(앞 7일)는 **고정 기간**. 실데이터에서는 PEER 와 같이 롤링 갱신 필요. 이상이 섞인 기간으로 학습하면 그 관계가 '정상'이 되므로 경고 구간은 빼고 학습할 것.
 - 데모의 관계는 단순(투입 = 개도 비례, 고분자 = 약품 10분 지연 비례). 실제 공정은 지연·비선형이 더 클 수 있어 `VALVE_K`, `RATIO_K`, `RATIO_LAG`, `AIR_K` 를 실측으로 재조정해야 함.
@@ -263,101 +289,112 @@ import streamlit as st
 st.set_page_config(page_title="WWTP 품질 관제", page_icon="💧", layout="wide", initial_sidebar_state="collapsed")
 
 import views  # noqa: E402  (set_page_config 이후 import)
-from core import KIND, get_plant, incidents  # noqa: E402
+from core import get_plant, incidents  # noqa: E402
 from views import RANGES  # noqa: E402
 
 CSS = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&display=swap');
 
+/* 템플릿 금지: 둥근 카드·그림자·타일 대신 현장 HMI 패널처럼 선과 글자 크기로 구분 */
+:root { --mono: 'D2Coding', 'Consolas', 'Menlo', monospace; --ink:#0f172a; --rule:#1e293b; --mute:#64748b; }
+
 /* 사이드바 제거 → 상단 내비 + 헤더 바. 현장 모니터(와이드)에 맞춰 폭을 넓게 */
 [data-testid="stSidebar"], [data-testid="stSidebarCollapsedControl"] { display: none; }
 .block-container { padding-top: 4.5rem; max-width: 1920px; }
 
-/* 헤더 바 */
-.wwtp-bar { display:flex; align-items:center; gap:14px; padding:10px 16px; margin-bottom:6px;
-  background:#ffffff; border:1px solid #cbd5e1; border-left:6px solid #0e7490; border-radius:10px;
-  box-shadow:0 1px 3px rgba(15,23,42,.08); }
-.wwtp-logo { width:38px; height:38px; border-radius:9px; display:flex; align-items:center; justify-content:center;
-  background:#ecfeff; border:1px solid #67e8f9; font-size:20px; }
-.wwtp-title { font-weight:800; letter-spacing:.04em; color:#0f172a; font-size:15px; line-height:1.2; }
-.wwtp-sub { color:#64748b; font-size:11px; }
-.wwtp-live { font-family:'Orbitron',sans-serif; font-size:10px; padding:2px 8px; border-radius:5px;
-  color:#0e7490; background:#ecfeff; border:1px solid #67e8f9; margin-left:8px; }
-.wwtp-pill { margin-left:auto; padding:6px 14px; border-radius:8px; font-size:13px; font-weight:800; }
-.wwtp-pill.bad { color:#ffffff; background:#dc2626; border:1px solid #b91c1c; animation: glow 1.6s infinite; }
-.wwtp-pill.ok { color:#ffffff; background:#16a34a; border:1px solid #15803d; }
-@keyframes glow { 0%,100% { box-shadow:0 0 0 0 rgba(220,38,38,.55);} 50% { box-shadow:0 0 0 6px rgba(220,38,38,0);} }
+/* 헤더: 상자 없이 굵은 밑줄 하나 */
+.wwtp-bar { display:flex; align-items:center; gap:14px; padding:2px 0 8px; margin-bottom:4px; border-bottom:3px solid var(--rule); }
+.wwtp-mark { font-family:var(--mono); font-weight:800; font-size:13px; letter-spacing:.1em; color:#fff; background:var(--rule); padding:7px 9px; }
+.wwtp-title { font-weight:800; letter-spacing:.06em; color:var(--ink); font-size:15px; line-height:1.2; }
+.wwtp-sub { color:var(--mute); font-size:11px; }
+.wwtp-live { font-family:var(--mono); font-size:10px; padding:1px 6px; color:#0e7490; border:1px solid #0e7490; margin-left:8px; }
+.wwtp-pill { margin-left:auto; padding:6px 14px; font-size:13px; font-weight:800; font-family:var(--mono); letter-spacing:.04em; }
+.wwtp-pill.bad { color:#fff; background:#dc2626; animation: glow 1.6s infinite; }
+.wwtp-pill.ok { color:#fff; background:#16a34a; }
+@keyframes glow { 0%,100% { box-shadow:0 0 0 0 rgba(220,38,38,.55);} 50% { box-shadow:0 0 0 5px rgba(220,38,38,0);} }
 
-/* 카드(테두리 컨테이너) */
-div[data-testid="stVerticalBlockBorderWrapper"] {
-  background:#ffffff; border:1px solid #d5dde7 !important; border-radius:10px; box-shadow:0 1px 2px rgba(15,23,42,.05);
-}
-div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="stVerticalBlockBorderWrapper"] { box-shadow:none; }
+/* 테두리 컨테이너·펼침 상자: 직각, 그림자 없음 */
+div[data-testid="stVerticalBlockBorderWrapper"] { background:#ffffff; border:1px solid #cbd5e1 !important; border-radius:0 !important; box-shadow:none; }
+[data-testid="stExpander"] details { border-radius:0 !important; border-color:#cbd5e1 !important; background:#ffffff; }
 
 /* 숫자는 계기판 폰트 */
 [data-testid="stMetricValue"] { font-family:'Orbitron',sans-serif; color:#0e7490; font-weight:700; }
 [data-testid="stMetricLabel"] { color:#475569; }
 h3 { letter-spacing:.02em; }
+.sec { font-weight:800; font-size:13px; letter-spacing:.08em; color:var(--ink); border-bottom:2px solid var(--rule);
+  margin:18px 0 6px; padding-bottom:3px; display:flex; justify-content:space-between; align-items:baseline; }
+.sec span { font-weight:400; letter-spacing:0; color:var(--mute); font-size:12px; }
 
-/* 전체 현황: KPI 타일 */
-.kp { display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr)); gap:10px; margin:4px 0 10px; }
-.kt { background:#ffffff; border:1px solid #d5dde7; border-left:8px solid #cbd5e1; border-radius:10px; padding:10px 14px; }
-.kt .kl { font-size:13px; color:#475569; font-weight:700; }
-.kt .kv { font-family:'Orbitron',sans-serif; font-size:30px; font-weight:700; color:#94a3b8; line-height:1.25; }
-.kt .kv small { font-size:15px; color:#64748b; }
-.kt.ok .kv { color:#16a34a; }
-.kt.hot { color:#ffffff; }
-.kt.hot .kl, .kt.hot .kv, .kt.hot .kv small { color:#ffffff; }
-.kt.pulse { animation: glow 1.6s infinite; }
+/* 전체 현황 ① 주요 이상점 요약 바 (색·깜빡임은 views._banner 가 바마다 넣음) */
+[class*="st-key-bn-"] button { justify-content:flex-start; border:0 !important; border-radius:0 !important; padding:8px 14px !important;
+  min-height:0; height:auto; }
+[class*="st-key-bn-"] button div { width:100%; justify-content:flex-start; text-align:left; }
+[class*="st-key-bn-"] button p { font-size:14px; font-weight:700; text-align:left; color:#ffffff; margin:0; }
+[class*="st-key-bn-"] button:hover { filter:brightness(1.08); }
+.st-key-bn-0 button { padding:13px 16px !important; }
+.st-key-bn-0 button p { font-size:17px; font-weight:800; }
+.ok-bar { background:#16a34a; color:#fff; font-weight:800; padding:12px 16px; }
+@keyframes pulseR { 0%,100% { box-shadow:0 0 0 0 rgba(220,38,38,0); } 50% { box-shadow:0 0 16px 2px rgba(220,38,38,.55); } }
 
-/* 전체 현황: 진행 중 경고 띠 */
-.tk { display:flex; flex-wrap:wrap; gap:8px; margin:2px 0 12px; }
-.tc { padding:7px 12px; border-radius:8px; color:#ffffff; font-size:14px; font-weight:700; }
-.tc span { font-weight:500; opacity:.92; }
-.tk-ok { padding:10px 14px; border-radius:8px; background:#16a34a; color:#fff; font-weight:800; font-size:15px; margin-bottom:12px; }
+/* 전체 현황 ② 공정 흐름 노드(신호등 + 글로우) + 영향 화살표 */
+[class*="st-key-fn-"] button { height:auto; min-height:0; padding:8px 10px; justify-content:flex-start; border-radius:6px !important; }
+[class*="st-key-fn-"] button p { font-size:12px; line-height:1.45; text-align:left; margin:0; color:#475569; }
+[class*="st-key-fn-"] button em { font-style:normal; font-weight:800; font-size:13px; color:var(--ink); }
+[class*="st-key-fn-"] button strong { font-weight:800; }
+@keyframes glowR { 0%,100% { box-shadow:0 0 4px 0 rgba(220,38,38,.25); } 50% { box-shadow:0 0 18px 4px rgba(220,38,38,.5); } }
+@keyframes glowY { 0%,100% { box-shadow:0 0 3px 0 rgba(245,158,11,.25); } 50% { box-shadow:0 0 16px 3px rgba(245,158,11,.5); } }
+.ln2 { font-weight:800; font-size:16px; color:var(--ink); line-height:1.2; }
+.ln2 small { display:block; font-size:11.5px; font-weight:700; margin-top:2px; }
+.fa { position:relative; height:40px; }
+.fa i { position:absolute; left:0; right:11px; top:24px; height:4px; background:var(--c); }
+.fa i::after { content:""; position:absolute; right:-11px; top:-6px; border-left:12px solid var(--c);
+  border-top:8px solid transparent; border-bottom:8px solid transparent; }
+.fa b { position:absolute; left:0; right:0; top:4px; text-align:center; font-size:10.5px; color:var(--c); }
 
-/* 전체 현황: 운전 보드 */
-.bt { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 12px; font-size:14px; color:#475569; }
-.bt > * { white-space:nowrap; }
-.bt b { font-size:20px; color:#0f172a; }
-.bt .st { font-weight:800; }
-.bd-wrap { overflow-x:auto; }
-table.bd { border-collapse:collapse; width:100%; font-size:14px; }
-table.bd.nr { font-size:13px; }
-table.bd.nr td, table.bd.nr th { padding:4px 1px; }
-.bd th { background:#334155; color:#ffffff; font-weight:700; font-size:12px; padding:4px 2px; text-align:center;
-  border:1px solid #475569; white-space:nowrap; }
-.bd tr.h2 th { background:#e2e8f0; color:#1e293b; border-color:#cbd5e1; }
-.bd th small { display:block; font-weight:400; color:#64748b; font-size:10px; }
-.bd td { background:#ffffff; color:#0f172a; border:1px solid #e2e8f0; text-align:center; padding:5px 2px;
-  font-weight:600; font-variant-numeric:tabular-nums; white-space:nowrap; cursor:default; }
-.bd td.rb { background:#f1f5f9; color:#0f172a; font-weight:800; font-size:13px; }
-.bd td.rl { background:#f8fafc; color:#334155; font-weight:700; font-size:13px; }
-.bd tr.bs td { border-top:3px solid #64748b; }
-.bd td.k { color:#ffffff; font-weight:800; }
-.bd td.res { background:#e2e8f0; color:#64748b; }
-.bd td.k-SPEC { animation: blink 1.1s steps(2, start) infinite; }
-.bd .ar { font-size:10px; margin-left:2px; opacity:.75; }
-@keyframes blink { 50% { background:#7f1d1d; } }
-.lg { display:flex; flex-wrap:wrap; gap:6px 14px; font-size:12px; color:#475569; margin:2px 0 8px; align-items:center; }
-.lg i { display:inline-block; width:14px; height:14px; border-radius:3px; vertical-align:-2px; margin-right:4px; border:1px solid #cbd5e1; }
+/* 공정 상세: 계열 머리 + 탱크(버튼) + 탱크 사이 배관 */
+.lh { display:flex; gap:12px; align-items:center; margin:16px 0 6px; font-size:13px; font-weight:700;
+  border-bottom:1px solid #94a3b8; padding-bottom:4px; }
+.lh b { background:var(--rule); color:#fff; font-family:var(--mono); padding:2px 9px; font-size:13px; }
+[class*="st-key-nd-"] { position:relative; }
+[class*="st-key-nd-"]::after { content:""; position:absolute; top:50%; right:-1rem; width:1rem; height:3px;
+  background:#475569; transform:translateY(-50%); }
+[class*="st-key-nd-"]::before { content:""; position:absolute; top:50%; right:-1rem; transform:translateY(-50%);
+  border-left:8px solid #475569; border-top:6px solid transparent; border-bottom:6px solid transparent; z-index:1; }
+[class*="st-key-nd-"] button { height:auto; min-height:0; padding:6px 10px; justify-content:flex-start; background:#ffffff;
+  border-radius:0 !important; box-shadow:none !important; }
+[class*="st-key-nd-"] button:hover { background:#f1f5f9; }
+[class*="st-key-nd-"] button p { font-size:12px; line-height:1.5; text-align:left; margin:0; font-family:var(--mono); color:var(--mute); }
+[class*="st-key-nd-"] button em { font-style:normal; font-family:'Malgun Gothic',sans-serif; font-weight:800; font-size:13px; color:var(--ink); }
+[class*="st-key-nd-"] button strong { font-weight:800; }
+.xh { margin:8px 0 2px; font-size:13px; color:var(--mute); border-left:4px solid #0e7490; padding-left:8px; }
+.xh b { color:var(--ink); }
 
-/* 공정 상세: 흐름도(조 = 버튼) */
-.lh { display:flex; gap:14px; align-items:baseline; margin:14px 0 6px; font-size:13px; } .lh b { color:#0f172a; font-size:14px; }
-[class*="st-key-nd-"] button { height:auto; min-height:0; padding:7px 10px; justify-content:flex-start; background:#ffffff; }
-[class*="st-key-nd-"] button:hover { background:#ecfeff; }
-[class*="st-key-nd-"] button p { font-size:12px; line-height:1.55; text-align:left; margin:0; }
+/* 센서 머리글 (카드·metric 위젯 대신 선 하나) */
+.sh { border-top:2px solid var(--rule); padding:4px 0 0; display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 10px; }
+.sh .p { font-weight:800; font-size:13px; color:var(--ink); }
+.sh .v { font-family:var(--mono); font-size:24px; font-weight:700; line-height:1.1; }
+.sh .u { color:var(--mute); font-size:12px; margin-left:-6px; }
+.sh .dl { font-family:var(--mono); color:var(--mute); font-size:12px; }
+.sh .s { margin-left:auto; font-size:12.5px; font-weight:800; }
+.sh .x { flex-basis:100%; font-size:11.5px; color:var(--mute); }
+
+/* 경고 센터: 사고 머리 (카드 대신 왼쪽 색 막대 + 굵은 윗선) */
+.ih { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 14px; margin:18px 0 6px; padding:6px 10px;
+  border-top:2px solid var(--rule); border-left:6px solid var(--c); background:#ffffff; font-size:13px; }
+.ih .t { font-family:var(--mono); font-weight:700; color:var(--ink); }
+.ih b { font-size:15px; color:var(--ink); }
+.ih .w { color:#475569; }
+.ih .g { font-family:var(--mono); font-size:11px; padding:1px 6px; border:1px solid currentColor; color:var(--c); }
+.ih .ks { margin-left:auto; font-weight:800; }
 </style>
 """
-# 경고 종류별 칸 색 (색 의미는 core.KIND 하나로 고정)
-CSS += "<style>" + "".join(f".bd td.k-{k}, .lg i.k-{k} {{ background:{v['color']}; }}" for k, v in KIND.items()) + "</style>"
 
 pages = {
-    "overview": st.Page(views.overview, title="전체 현황", icon="🏭", default=True),
-    "process": st.Page(views.process, title="공정 상세", icon="🔎", url_path="process"),
-    "compare": st.Page(views.compare, title="한눈에 비교", icon="📊", url_path="compare"),
-    "alerts": st.Page(views.alerts, title="경고 센터", icon="🚨", url_path="alerts"),
+    "overview": st.Page(views.overview, title="전체 현황", icon=":material/monitor_heart:", default=True),
+    "process": st.Page(views.process, title="공정 상세", icon=":material/account_tree:", url_path="process"),
+    "compare": st.Page(views.compare, title="한눈에 비교", icon=":material/grid_view:", url_path="compare"),
+    "alerts": st.Page(views.alerts, title="경고 센터", icon=":material/notifications:", url_path="alerts"),
 }
 st.session_state["_pages"] = pages
 nav = st.navigation(list(pages.values()), position="top")
@@ -367,13 +404,13 @@ st.markdown(CSS, unsafe_allow_html=True)
 plant = get_plant()
 n_inc = sum(x["active"] for x in incidents(plant, RANGES[st.session_state.get("range", "24시간")]))
 pill = (
-    f'<span class="wwtp-pill bad">⚠ 진행 중 사고 {n_inc}건</span>'
+    f'<span class="wwtp-pill bad">진행 중 사고 {n_inc}</span>'
     if n_inc
-    else '<span class="wwtp-pill ok">● 전 센서 정상</span>'
+    else '<span class="wwtp-pill ok">전 센서 정상</span>'
 )
 bar, ctl = st.columns([3.2, 1.4], vertical_alignment="center")
 bar.markdown(
-    f"""<div class="wwtp-bar"><div class="wwtp-logo">💧</div>
+    f"""<div class="wwtp-bar"><div class="wwtp-mark">WWTP</div>
     <div><div class="wwtp-title">WWTP QUALITY CONTROL<span class="wwtp-live">LIVE · DEMO</span></div>
     <div class="wwtp-sub">폐수처리 공정 수질 · 센서 {plant.n}개 이상 감지 관제</div></div>{pill}</div>""",
     unsafe_allow_html=True,
@@ -494,16 +531,17 @@ RATIO_RULES = [                       # 약품 투입이 늘었는데 고분자�
 ]
 RATIO_K, RATIO_LAG = 5.0, 2           # 고분자 ÷ 약품 비율이 평소보다 5σ 낮음, 반응조→응집조 10분 지연
 
+# sev: 신호등 단계 — red = 조치 필요(규격 이탈·설비/공정 이상), yellow = 확인 필요(근접·센서 이상 의심·조기경보)
 KIND = {
-    "SPEC": dict(label="스펙 이탈", color="#ef4444", icon="🔴", rank=0),
-    "NEAR": dict(label="상하한 근접", color="#f97316", icon="🟠", rank=1),
-    "HOLD": dict(label="1시간 Hold", color="#3b82f6", icon="🔵", rank=2),
-    "STD":  dict(label="표준편차 초과", color="#a855f7", icon="🟣", rank=3),
+    "SPEC": dict(label="스펙 이탈", color="#ef4444", icon="🔴", rank=0, sev="red"),
+    "NEAR": dict(label="상하한 근접", color="#f97316", icon="🟠", rank=1, sev="yellow"),
+    "HOLD": dict(label="1시간 Hold", color="#3b82f6", icon="🔵", rank=2, sev="yellow"),
+    "STD":  dict(label="표준편차 초과", color="#a855f7", icon="🟣", rank=3, sev="yellow"),
     # 공정 연관 규칙은 원인을 더 구체적으로 짚으므로 동료 대비 이탈보다 앞 순위(칸 색·정렬 우선)
-    "VALVE": dict(label="개도-투입 불일치", color="#92400e", icon="🟤", rank=4),
-    "AIR":  dict(label="DO↓ 공기개도↑", color="#0891b2", icon="💨", rank=5),
-    "RATIO": dict(label="고분자 부족(투입 비율)", color="#4f46e5", icon="⚗️", rank=6),
-    "PEER": dict(label="동료 대비 이탈(조기경보)", color="#ec4899", icon="🩷", rank=7),
+    "VALVE": dict(label="개도-투입 불일치", color="#92400e", icon="🟤", rank=4, sev="red"),
+    "AIR":  dict(label="DO↓ 공기개도↑", color="#0891b2", icon="💨", rank=5, sev="red"),
+    "RATIO": dict(label="고분자 부족(투입 비율)", color="#4f46e5", icon="⚗️", rank=6, sev="red"),
+    "PEER": dict(label="동료 대비 이탈(조기경보)", color="#ec4899", icon="🩷", rank=7, sev="yellow"),
 }
 NONE_RANK = 99
 
@@ -849,7 +887,7 @@ def incidents(plant: Plant, window: int) -> list[dict]:
 ## 파일: `charts.py`
 
 ````python
-"""Plotly 차트: 추이 + 규격선 + 근접/이탈 구간 + 이상 구간 + 동료 비교."""
+"""Plotly 차트: 센서 추이(sensor_figure) · 이상점 트렌드(trend_figure, 전체 현황용)."""
 from __future__ import annotations
 
 import numpy as np
@@ -952,12 +990,90 @@ def sensor_figure(plant: Plant, i: int, window: int, height: int = 230, peers: b
         yaxis=dict(range=[y0, y1], title=None),
     )
     return style(fig)
+
+
+SEV_RGB = {"red": "220,38,38", "yellow": "245,158,11"}
+
+
+def trend_figure(plant: Plant, i: int, window: int, height: int = 260) -> go.Figure:
+    """이상점 트렌드: 영역 차트 + 임계치(USL/LSL) 점선 + 이상 구간 음영(조치 필요 = 빨강, 확인 필요 = 노랑)
+    + 임계치를 넘은 점은 큰 붉은 마커 + 차트 위쪽 경고 문구."""
+    unit, dec = plant.meta["unit"].iat[i], int(plant.meta["dec"].iat[i])
+    lsl, usl = plant.lsl[i], plant.usl[i]
+    has_l = not np.isnan(lsl)
+    x = plant.idx[-window:]
+    y = plant.V[i, -window:]
+    lo = min(y.min(), lsl if has_l else y.min())
+    hi = max(y.max(), usl)
+    pad = (hi - lo) * 0.08
+    y0, y1 = lo - pad, hi + pad
+
+    fig = go.Figure()
+    red = np.zeros(window, bool)
+    yel = np.zeros(window, bool)
+    for k, v in KIND.items():
+        if v["sev"] == "red":
+            red |= plant.F[k][i, -window:]
+        else:
+            yel |= plant.F[k][i, -window:]
+    yel &= ~red
+    for mask, sev in ((red, "red"), (yel, "yellow")):
+        for a, b in _spans(mask, x):
+            fig.add_vrect(x0=a, x1=b, fillcolor=f"rgba({SEV_RGB[sev]},.13)", line_width=0, layer="below")
+
+    # 영역 차트: 아래 경계(y0)까지 채움
+    fig.add_trace(go.Scatter(x=x, y=np.full(window, y0), mode="lines", line=dict(width=0), hoverinfo="skip", showlegend=False))
+    fig.add_trace(go.Scatter(x=x, y=y, mode="lines", line=dict(color=LINE_COLOR, width=1.8), fill="tonexty",
+                             fillcolor="rgba(14,116,144,.12)", showlegend=False,
+                             hovertemplate="%{x|%H:%M}  <b>%{y:." + str(dec) + "f}</b> " + unit + "<extra></extra>"))
+    mem = plant.members[plant.G[i]]
+    mem = mem[mem != i]
+    if len(mem):
+        fig.add_trace(go.Scatter(x=x, y=np.median(plant.V[mem][:, -window:], axis=0), mode="lines",
+                                 line=dict(color="#94a3b8", width=1, dash="dot"), showlegend=False,
+                                 hovertemplate="동료 중앙값 %{y:.2f}<extra></extra>"))
+
+    for val, name in ((usl, "USL"), (lsl if has_l else None, "LSL")):
+        if val is not None:
+            fig.add_hline(y=val, line=dict(color="#dc2626", width=1.4, dash="dash"), annotation_text=f"{name} {val:g}",
+                          annotation_position="top left" if name == "USL" else "bottom left",
+                          annotation_font=dict(size=10, color="#dc2626"))
+
+    out = (y > usl) | ((y < lsl) if has_l else np.zeros(window, bool))
+    if out.any():
+        fig.add_trace(go.Scatter(x=x[out], y=y[out], mode="markers", showlegend=False,
+                                 marker=dict(color="#dc2626", size=11, line=dict(color="#ffffff", width=1.5)),
+                                 hovertemplate="임계치 초과 %{x|%H:%M}  <b>%{y:." + str(dec) + "f}</b><extra></extra>"))
+
+    # 상단 경고 문구
+    text, color = "", "#b45309"
+    if out.any():
+        dev = np.where(y > usl, y - usl, (lsl - y) if has_l else 0)
+        j = int(np.argmax(np.where(out, dev, -np.inf)))
+        low = has_l and y[j] < lsl
+        text = (f"⚠ {'하한 이탈' if low else '상한 초과'} · {'최저' if low else '최고'} {y[j]:.{dec}f} {unit} ({x[j]:%H:%M})"
+                f" · 임계치 밖 {int(out.sum()) * 5}분")
+        color = "#dc2626"
+    else:
+        kinds = plant.active_kinds(i) or plant.window_kinds(i, window)
+        if kinds:
+            first = int(np.argmax(plant.F[kinds[0]][i, -window:]))
+            text = f"⚠ {KIND[kinds[0]]['label'].split('(')[0]} · {x[first]:%H:%M}부터"
+            color = "#dc2626" if KIND[kinds[0]]["sev"] == "red" else "#b45309"
+    if text:
+        fig.add_annotation(xref="paper", yref="paper", x=0, y=1.02, xanchor="left", yanchor="bottom", showarrow=False,
+                           text=f"<b>{text}</b>", font=dict(size=12, color=color))
+
+    fig.update_layout(height=height, margin=dict(l=8, r=8, t=28, b=8), showlegend=False, hovermode="x unified",
+                      xaxis=dict(tickformat="%H:%M" if window <= 288 else "%m/%d %H:%M", showgrid=False),
+                      yaxis=dict(range=[y0, y1], title=None))
+    return style(fig)
 ````
 
 ## 파일: `views.py`
 
 ````python
-"""화면 4개: 전체 현황(운전 보드) → 공정 상세(계열·조 흐름) → 한눈에 비교 → 경고 센터(사고 묶음)."""
+"""화면 4개: 전체 현황(공정 흐름·이상점 연동) → 공정 상세(계열·조 흐름) → 한눈에 비교 → 경고 센터(사고 묶음)."""
 from __future__ import annotations
 
 import numpy as np
@@ -965,14 +1081,13 @@ import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
 
-from charts import BAND_KINDS, LINE_COLOR, _spans, rgb, sensor_figure, style
+from charts import BAND_KINDS, LINE_COLOR, _spans, rgb, sensor_figure, style, trend_figure
 from core import (
-    BUILDINGS, KIND, LINES, NONE_RANK, PROCESSES, STAGE_SPEC, STEP_MIN, get_plant, incidents, kind_by_rank, tanks_of,
+    BUILDINGS, KIND, LINES, NONE_RANK, PROCESSES, STEP_MIN, get_plant, incidents, kind_by_rank, tanks_of,
 )
 
 RANGES = {"3시간": 36, "6시간": 72, "12시간": 144, "24시간": 288, "48시간": 576}
 OK_COLOR, RESOLVED_COLOR = "#16a34a", "#64748b"
-ARROW_RATIO = 0.10      # 전체 현황: 1시간 변화가 규격폭의 10%를 넘으면 ▲▼
 
 
 # ───────────────────────── 공통 ─────────────────────────
@@ -986,14 +1101,6 @@ def _color(rank: int) -> str:
 
 def _status_text(rank: int) -> str:
     return "정상" if rank >= NONE_RANK else KIND[kind_by_rank(rank)]["label"].split("(")[0]
-
-
-def _badges(kinds: list[str]) -> str:
-    if not kinds:
-        return f'<span style="color:{OK_COLOR};font-weight:700">● 정상</span>'
-    return "&nbsp;&nbsp;".join(
-        f'<span style="color:{KIND[k]["color"]};font-weight:700">● {KIND[k]["label"].split("(")[0]}</span>' for k in kinds
-    )
 
 
 def _legend():
@@ -1010,30 +1117,32 @@ def _header(title: str, sub: str):
     st.caption(f"{sub}  |  데이터 기준 {plant.idx[-1]:%Y-%m-%d %H:%M} · {STEP_MIN}분 평균 (데모)")
 
 
-def _sensor_card(plant, i: int, window: int, height: int = 240, tag: str = "", note: str = ""):
+def _sensor_head(plant, i: int, window: int) -> str:
+    """센서 머리글 한 줄: 항목 · 현재값(이상이면 경고 색) · 1시간 변화 · 상태, 아래에 규격·σ·이력."""
     m = plant.meta.iloc[i]
+    dec = int(m.dec)
     kinds = plant.active_kinds(i)
     hist = [k for k in plant.window_kinds(i, window) if k not in kinds]
-    cur = plant.V[i, -1]
-    prev = plant.V[i, -13]
-    with st.container(border=True):
-        if tag:
-            st.markdown(f"**{tag}**")
-        c = st.columns([1.1, 1.5])
-        c[0].metric(f"{m.param} ({m.unit})", f"{cur:.2f}", f"{cur - prev:+.2f} /1h", delta_color="off")
-        with c[1]:
-            st.markdown(
-                _badges(kinds) if kinds or not hist else f'<span style="color:{RESOLVED_COLOR};font-weight:700">● 해소됨</span>',
-                unsafe_allow_html=True,
-            )
-            line2 = f"규격 {plant.spec_text(i)}  ·  σ {np.nan_to_num(plant.std[i, -1]):.2f}"
-            if hist:
-                line2 += "  ·  이력: " + ", ".join(KIND[k]["label"].split("(")[0] for k in hist)
-            st.caption(line2)
-        if note:
-            st.caption(note)
-        st.plotly_chart(sensor_figure(plant, i, window, height), width="stretch",
-                        key=f"c-{i}-{window}-{tag}", config={"displayModeBar": False})
+    cur, d = plant.V[i, -1], plant.V[i, -1] - plant.V[i, -13]
+    if kinds:
+        state = " · ".join(f'<span style="color:{KIND[k]["color"]}">{_kind_name(k)}</span>' for k in kinds)
+    elif hist:
+        state = f'<span style="color:{RESOLVED_COLOR}">해소됨</span>'
+    else:
+        state = f'<span style="color:{OK_COLOR}">정상</span>'
+    extra = f"규격 {plant.spec_text(i)} · σ {np.nan_to_num(plant.std[i, -1]):.2f}"
+    if hist:
+        extra += " · 이력: " + ", ".join(_kind_name(k) for k in hist)
+    vcol = KIND[kinds[0]]["color"] if kinds else "var(--ink)"
+    return (f'<div class="sh"><span class="p">{m.param}</span><span class="v" style="color:{vcol}">{cur:.{dec}f}</span>'
+            f'<span class="u">{m.unit}</span><span class="dl">{d:+.{dec}f} /1h</span><span class="s">{state}</span>'
+            f'<div class="x">{extra}</div></div>')
+
+
+def _sensor_card(plant, i: int, window: int, height: int = 240):
+    st.markdown(_sensor_head(plant, i, window), unsafe_allow_html=True)
+    st.plotly_chart(sensor_figure(plant, i, window, height), width="stretch",
+                    key=f"c-{i}-{window}", config={"displayModeBar": False})
 
 
 def _incident_charts(plant, x: dict, window: int, prefix: str):
@@ -1051,130 +1160,263 @@ def _incident_charts(plant, x: dict, window: int, prefix: str):
 
 
 # ───────────────────────── 1. 전체 현황 ─────────────────────────
-def _kpi_tiles(plant) -> str:
-    n_bad = int((plant.now_rank < NONE_RANK).sum())
-    tiles = [f'<div class="kt ok" style="border-left-color:{OK_COLOR}"><div class="kl">🟢 정상 / 전체 센서</div>'
-             f'<div class="kv">{plant.n - n_bad}<small> / {plant.n}</small></div></div>']
+# 공정 흐름 중심 (사용자 디자인 지시서, 2026-11-04): 3초 안에 어느 공정이 이상인지 보이게.
+#   ① 주요 이상점 요약 바(이벤트 스택) → ② 공정 흐름 노드(신호등 + 글로우 + 영향 화살표)
+#   → ③ 이상점 요약 캔버스(시간축) → ④ 공정 상세 트렌드.
+#   바·노드·캔버스 점 중 어느 것을 눌러도 같은 '선택'으로 묶여 노드 강조와 아래 트렌드가 함께 바뀜.
+SEV_COLOR = {"red": "#dc2626", "yellow": "#f59e0b", "green": "#16a34a"}
+SEV_TEXT = {"red": "조치 필요", "yellow": "확인 필요", "green": "정상"}
+IMPACT_COLOR = {"red": "#dc2626", "yellow": "#f97316", "green": "#94a3b8"}   # 다음 단계로 가는 화살표
+BANNER_N = 5
+
+
+def _kind_name(k: str) -> str:
+    return KIND[k]["label"].split("(")[0]
+
+
+def _sev(rank: int) -> str:
+    return "green" if rank >= NONE_RANK else KIND[kind_by_rank(rank)]["sev"]
+
+
+def _sev_ids(plant, ids) -> tuple[str, int | None]:
+    """센서 묶음의 지금 신호등과 대표 센서: 빨강(조치 필요) 경고가 하나라도 있으면 빨강, 그 외 이상이 있으면 노랑."""
+    if not len(ids):
+        return "green", None
+    red = np.zeros(len(ids), bool)
     for k, v in KIND.items():
-        cnt = int(plant.F[k][:, -1].sum())
-        if cnt:   # 걸린 게 있으면 타일 전체를 경고 색으로
-            cls = "kt hot pulse" if k == "SPEC" else "kt hot"
-            style_ = f"background:{v['color']};border-color:{v['color']}"
-        else:
-            cls, style_ = "kt", ""
-        tiles.append(f'<div class="{cls}" style="border-left-color:{v["color"]};{style_}">'
-                     f'<div class="kl">{v["icon"]} {v["label"].split("(")[0]}</div><div class="kv">{cnt}<small> 개</small></div></div>')
-    return f'<div class="kp">{"".join(tiles)}</div>'
-
-
-def _ticker(inc: list[dict]) -> str:
-    if not inc:
-        return '<div class="tk-ok">● 전 공정 정상 — 진행 중인 경고가 없습니다</div>'
-    chips = "".join(
-        f'<div class="tc" style="background:{_color(x["rank"])}">{_status_text(x["rank"])} · {x["title"]} '
-        f'<span>· {x["what"]} · {x["first"]:%H:%M}~</span></div>'
-        for x in inc
-    )
-    return f'<div class="tk">{chips}</div>'
-
-
-def _legend_board() -> str:
-    items = [f'<span><i style="background:#ffffff"></i>정상</span>']
-    items += [f'<span><i class="k-{k}"></i>{v["label"].split("(")[0]}</span>' for k, v in KIND.items()]
-    items += ['<span><i style="background:#e2e8f0"></i>조회 구간 안에 있었다가 해소</span>',
-              f'<span>▲▼ 1시간 새 규격폭의 {ARROW_RATIO:.0%} 넘게 변함</span>', '<span>칸에 마우스를 올리면 규격·상태 상세</span>']
-    return f'<div class="lg">{"".join(items)}</div>'
-
-
-def _board_html(plant, p: str, window: int, wide: bool = True) -> str:
-    """공정 1개 운전 보드: 행 = 동·계열, 열 = 공정 흐름 순서의 조·항목, 칸 = 현재값(이상이면 경고 색)."""
-    tanks = tanks_of(p)
-    dec = plant.meta["dec"].to_numpy()
-    h1 = '<th colspan="2" rowspan="2">동 · 계열</th>' + "".join(f'<th colspan="{len(ps)}">{t}</th>' for t, _, ps in tanks)
-    h2 = "".join(f'<th>{prm}<small>{STAGE_SPEC[(stage, prm)]["unit"]}</small></th>' for _, stage, ps in tanks for prm in ps)
-    rows = []
-    for b in BUILDINGS:
-        for li, l in enumerate(LINES):
-            tds = [f'<td class="rb" rowspan="{len(LINES)}">{b}</td>'] if li == 0 else []
-            tds.append(f'<td class="rl">{l[0]}</td>')
-            for tank, _, params in tanks:
-                for prm in params:
-                    i = plant.find(b, p, l, tank, prm)
-                    v, d = plant.V[i, -1], plant.V[i, -1] - plant.V[i, -13]
-                    span = plant.usl[i] - (0.0 if np.isnan(plant.lsl[i]) else plant.lsl[i])
-                    arrow = ('<span class="ar">▲</span>' if d > 0 else '<span class="ar">▼</span>') if abs(d) > ARROW_RATIO * span else ""
-                    kinds = plant.active_kinds(i)
-                    if kinds:
-                        cls = f"k k-{kinds[0]}"
-                        state = ", ".join(KIND[k]["label"] for k in kinds)
-                    elif plant.window_kinds(i, window):
-                        cls, state = "res", "해소됨 (" + ", ".join(KIND[k]["label"].split("(")[0] for k in plant.window_kinds(i, window)) + ")"
-                    else:
-                        cls, state = "", "정상"
-                    tip = f"{plant.name(i)}&#10;현재 {v:.{dec[i]}f} {plant.meta['unit'].iat[i]} · 규격 {plant.spec_text(i)}&#10;1시간 변화 {d:+.{dec[i]}f}&#10;상태: {state}"
-                    tds.append(f'<td class="{cls}" title="{tip}">{v:.{dec[i]}f}{arrow}</td>')
-            rows.append(f'<tr class="{"bs" if li == 0 else ""}">{"".join(tds)}</tr>')
-    return (f'<div class="bd-wrap"><table class="bd{"" if wide else " nr"}">'
-            f'<thead><tr>{h1}</tr><tr class="h2">{h2}</tr></thead><tbody>{"".join(rows)}</tbody></table></div>')
-
-
-def _board(plant, p: str, window: int, wide: bool):
-    ids = plant.sel(proc=p)
+        if v["sev"] == "red":
+            red |= plant.F[k][ids, -1]
+    if red.any():
+        return "red", int(ids[np.argmax(red)])
     r = plant.now_rank[ids]
-    worst = int(r.min())
-    n_b = int((r < NONE_RANK).sum())
-    n_peer = int(plant.F["PEER"][ids, -1].sum())
-    with st.container(border=True):
-        if wide:
-            head, *btns = st.columns([3] + [1] * len(BUILDINGS), vertical_alignment="center")
-        else:     # 좁은 보드는 버튼을 제목 아래 줄로
-            head, btns = st.container(), st.columns(len(BUILDINGS))
-        head.markdown(
-            f'<div class="bt"><b>{p}</b><span class="st" style="color:{_color(worst)}">● {_status_text(worst)}</span>'
-            f'<span>이상 센서 <b style="font-size:14px">{n_b}</b> / {len(ids)}'
-            + (f' · 조기경보 <b style="font-size:14px">{n_peer}</b>' if n_peer else "") + "</span></div>",
-            unsafe_allow_html=True,
-        )
-        for c, b in zip(btns, BUILDINGS):
-            if c.button(f"{b} ›", key=f"go-{b}-{p}", width="stretch", help=f"{b} {p} 공정 상세로 이동"):
-                st.session_state["_jump"] = (b, p)
-                st.switch_page(st.session_state["_pages"]["process"])
-        st.markdown(_board_html(plant, p, window, wide), unsafe_allow_html=True)
+    return ("yellow", int(ids[np.argmin(r)])) if r.min() < NONE_RANK else ("green", None)
+
+
+def _stages(p: str) -> list[str]:
+    """공정 흐름 순서의 조 종류 (폭기조1~5, 반응조1~3 은 노드 하나)."""
+    return list(dict.fromkeys(stage for _, stage, _ in tanks_of(p)))
+
+
+def _stage_name(stage: str) -> str:
+    return stage.replace("유기침전조", "침전조").replace("무기침전조", "침전조")
+
+
+def _ikey(x: dict) -> tuple:
+    return (x["bldg"], x["proc"], x["line"], x["stage"])
+
+
+def _now(plant, x: dict) -> tuple[int, str]:
+    """사고의 '지금' 가장 심한 경고 (순위, 센서). 이미 풀린 경고(조회 구간 안 과거)는 빼고 판단."""
+    best, pick = (True, NONE_RANK), x["sids"][0]
+    for i in x["sids"]:
+        for k in plant.active_kinds(i):                      # 빨강(조치 필요)을 순위보다 먼저 봄
+            cand = (KIND[k]["sev"] != "red", KIND[k]["rank"])
+            if cand < best:
+                best, pick = cand, i
+    return (best[1], pick) if best[1] < NONE_RANK else (x["rank"], x["sids"][0])
+
+
+def _headline(plant, x: dict) -> str:
+    """이상점 요약 문장: [STAGE nn] 공정 조 · 위치 항목 현상 (현재값 단위)."""
+    rank, i = _now(plant, x)
+    m = plant.meta.iloc[i]
+    k = kind_by_rank(rank)
+    v = plant.V[i, -1]
+    low = (not np.isnan(plant.lsl[i])) and v < (plant.lsl[i] + plant.usl[i]) / 2
+    what = {
+        "SPEC": ("농도 급감 · 하한 이탈" if m.param == "DO" else "하한 이탈") if low else "상한 초과",
+        "NEAR": "하한 근접" if low else "상한 근접",
+        "HOLD": "값 고정 1시간+ (센서·통신 확인)", "STD": "변동 급증", "VALVE": "개도-투입 불일치 (막힘·펌프 의심)",
+        "AIR": "DO 하락 · 공기개도 상승 (산기관 의심)", "RATIO": "고분자 부족 (약품 대비)", "PEER": "동료 대비 이탈",
+    }[k]
+    n = _stages(m.proc).index(m.stage) + 1
+    return (f"[STAGE {n:02d}] {m.proc} {_stage_name(m.stage)} · {m.bldg} {m.line} {m.tank} {m.param} {what} "
+            f"({v:.{int(m.dec)}f} {m.unit})")
+
+
+def _select(kind: str, key: tuple):
+    st.session_state["ov_sel"] = (kind, key)
+
+
+def _resolve_selection(inc: list[dict]):
+    """캔버스 점 클릭을 반영하고, 지금 선택(사고 또는 노드)을 돌려줌. 없으면 가장 시급한 사고."""
+    ev = st.session_state.get("ov_canvas")
+    try:
+        pts = ev["selection"]["points"] if ev else []
+    except (KeyError, TypeError):
+        pts = []
+    if pts:
+        cd = pts[0].get("customdata")
+        cd = cd[0] if isinstance(cd, (list, tuple)) else cd
+        if cd and cd != st.session_state.get("_ov_canvas_last"):   # 새로 누른 점만 반영 (바·노드 클릭을 덮어쓰지 않게)
+            st.session_state["_ov_canvas_last"] = cd
+            st.session_state["ov_sel"] = ("inc", tuple(cd.split("|")))
+    sel = st.session_state.get("ov_sel")
+    if sel and sel[0] == "inc" and not any(_ikey(x) == tuple(sel[1]) for x in inc):
+        sel = None
+    if not sel and inc:
+        sel = ("inc", _ikey(inc[0]))
+    return sel
+
+
+def _banner(plant, act: list[dict], sel):
+    """① 주요 이상점 요약 바: 시급한 순(조치 필요 → 확인 필요). 누르면 그 이상점으로 아래 전체가 연동."""
+    css = []
+    if not act:
+        st.markdown('<div class="ok-bar">전 공정 정상 — 진행 중인 이상점 없음</div>', unsafe_allow_html=True)
+        return
+    for n, x in enumerate(act[:BANNER_N]):
+        sev = _sev(_now(plant, x)[0])
+        key = f"bn-{n}"
+        st.button(("🚨 " if sev == "red" else "⚠ ") + _headline(plant, x) + f" — {SEV_TEXT[sev]}",
+                  key=key, on_click=_select, args=("inc", _ikey(x)), width="stretch")
+        bg = "#dc2626" if sev == "red" else "#b45309"
+        rule = f".st-key-{key} button{{background:{bg} !important;"
+        if sev == "red":
+            rule += "animation:pulseR 1.8s ease-in-out infinite;"
+        if sel == ("inc", _ikey(x)):
+            rule += "outline:3px solid #0f172a;outline-offset:2px;"
+        css.append(rule + "}")
+    if len(act) > BANNER_N:
+        st.caption(f"외 {len(act) - BANNER_N}건 진행 중 — 아래 캔버스와 경고 센터에서 모두 볼 수 있어요")
+    st.markdown("<style>" + "".join(css) + "</style>", unsafe_allow_html=True)
+
+
+def _flow(plant, bsel: str | None, sel_node: tuple | None):
+    """② 공정 흐름 노드: 공정마다 한 줄, 조 종류 = 노드(신호등), 노드 사이 화살표 = 앞 단계의 영향."""
+    css = []
+    for pi, p in enumerate(PROCESSES):
+        stages = _stages(p)
+        widths = [0.75] + sum(([1, 0.3] for _ in stages), [])[:-1]
+        cols = st.columns(widths, vertical_alignment="center", gap="small")
+        lane = plant.sel(proc=p, **({"bldg": bsel} if bsel else {}))
+        lsev = _sev_ids(plant, lane)[0]
+        cols[0].markdown(f'<div class="ln2">{p}<small style="color:{SEV_COLOR[lsev]}">● {SEV_TEXT[lsev]}</small></div>',
+                         unsafe_allow_html=True)
+        for si, stage in enumerate(stages):
+            ids = plant.sel(proc=p, stage=stage, **({"bldg": bsel} if bsel else {}))
+            sev, j = _sev_ids(plant, ids)
+            n_bad = int((plant.now_rank[ids] < NONE_RANK).sum())
+            label = f"*STAGE {si + 1:02d} · {_stage_name(stage)}*  \n**● {SEV_TEXT[sev]}**  \n이상 {n_bad} / {len(ids)}"
+            if j is not None:
+                m = plant.meta.iloc[j]
+                label += f"  \n{m.bldg} {m.line[0]} {m.tank} {m.param} {plant.V[j, -1]:.{int(m.dec)}f}"
+            key = f"fn-{pi}-{si}"
+            cols[1 + 2 * si].button(label, key=key, on_click=_select, args=("node", (p, stage)), width="stretch")
+            rule = {
+                "red": "border:2px solid #dc2626 !important;background:#fef2f2 !important;animation:glowR 1.8s ease-in-out infinite;",
+                "yellow": "border:2px solid #f59e0b !important;background:#fffbeb !important;animation:glowY 2.2s ease-in-out infinite;",
+                "green": "border:1px solid #cbd5e1 !important;background:#ffffff !important;",
+            }[sev]
+            if sel_node == (p, stage):
+                rule += "outline:3px solid #0f172a;outline-offset:3px;"
+            strong = {"red": "#dc2626", "yellow": "#b45309", "green": "#16a34a"}[sev]
+            css.append(f".st-key-{key} button{{{rule}}}.st-key-{key} button strong{{color:{strong};}}")
+            if si < len(stages) - 1:                          # 영향 화살표: 앞 단계(이 노드)가 이상이면 주황/빨강
+                c = IMPACT_COLOR[sev]
+                cols[2 + 2 * si].markdown(f'<div class="fa" style="--c:{c}"><b>{"영향" if sev != "green" else ""}</b><i></i></div>',
+                                          unsafe_allow_html=True)
+    st.markdown("<style>" + "".join(css) + "</style>", unsafe_allow_html=True)
+
+
+def _canvas(plant, inc: list[dict], window: int, sel) -> go.Figure:
+    """③ 이상점 요약 캔버스: 세로 = 공정·조(흐름 순서), 가로 = 시간. 사고마다 지속 막대 + 지금 점. 점을 누르면 선택."""
+    used = {(it["proc"], it["stage"]) for it in inc}
+    lanes = [(p, s) for p in PROCESSES for s in _stages(p) if (p, s) in used] or [(PROCESSES[0], _stages(PROCESSES[0])[0])]
+    ypos = {ls: n for n, ls in enumerate(lanes)}
+    x = plant.idx[-window:]
+    step = x[1] - x[0]
+    # 같은 줄(공정·조)에 사고가 여럿이면 높이를 하나씩 나눠 줌 → 점이 겹치지 않아 따로 누를 수 있음
+    slot, count = {}, {}
+    for it in inc:
+        ls = (it["proc"], it["stage"])
+        slot[_ikey(it)] = count.get(ls, 0)
+        count[ls] = count.get(ls, 0) + 1
+    fig = go.Figure()
+    for it in inc:
+        sev = _sev(_now(plant, it)[0] if it["active"] else it["rank"])
+        n_in = count[(it["proc"], it["stage"])]
+        y = ypos[(it["proc"], it["stage"])] + (slot[_ikey(it)] - (n_in - 1) / 2) * min(0.24, 0.8 / n_in)
+        key = "|".join(_ikey(it))
+        color = SEV_COLOR[sev] if it["active"] else "#94a3b8"
+        end = "" if it["active"] else f"{it['last']:%H:%M}"      # 사내 Python 3.11 이하에서도 되게 f-string 중첩 안 함
+        hover = f"{it['title']}<br>{it['what']}<br>{_status_text(it['rank'])} · {it['first']:%H:%M}~{end}"
+        fig.add_trace(go.Scatter(x=[it["first"], it["last"] + step], y=[y, y], mode="lines", line=dict(color=color, width=6),
+                                 customdata=[key, key], hovertext=[hover, hover], hoverinfo="text", showlegend=False))
+        picked = sel == ("inc", _ikey(it))                     # 선택된 점은 굵은 검정 테두리 (덮는 원을 따로 그리면 옆 점 클릭을 가로챔)
+        fig.add_trace(go.Scatter(x=[it["last"] + step], y=[y], mode="markers", customdata=[key], hovertext=[hover],
+                                 hoverinfo="text", showlegend=False,
+                                 marker=dict(size=14 if picked else (12 if it["active"] else 9),
+                                             color=color if it["active"] else "#ffffff",
+                                             line=dict(color="#0f172a" if picked else ("#ffffff" if it["active"] else "#94a3b8"),
+                                                       width=3 if picked else 2))))
+    fig.add_vline(x=x[-1] + step, line=dict(color="#0f172a", width=1, dash="dot"))
+    for n in range(1, len(lanes)):
+        if lanes[n][0] != lanes[n - 1][0]:                      # 공정 경계선
+            fig.add_hline(y=n - 0.5, line=dict(color="#94a3b8", width=1))
+    fig.update_yaxes(tickvals=list(range(len(lanes))), ticktext=[f"{p} · {_stage_name(s)}" for p, s in lanes],
+                     range=[len(lanes) - 0.5, -0.5], showgrid=False, tickfont=dict(size=12, color="#0f172a"))
+    fig.update_xaxes(range=[x[0], x[-1] + step * 6], tickformat="%H:%M" if window <= 288 else "%m/%d %H:%M")
+    fig.update_layout(height=58 * len(lanes) + 50, margin=dict(l=8, r=8, t=8, b=8), hovermode="closest",
+                      clickmode="event+select", dragmode=False)
+    return style(fig)
+
+
+def _detail(plant, sel, inc: list[dict], window: int, bsel: str | None):
+    """④ 공정 상세 트렌드: 선택된 이상점(또는 노드)의 센서 추이."""
+    if sel and sel[0] == "inc":
+        x = next(it for it in inc if _ikey(it) == tuple(sel[1]))
+        title, sub = f"{x['title']} · {x['what']}", f"{_status_text(x['rank'])} · {x['first']:%H:%M}부터"
+        sids = x["sids"][:4]
+    elif sel and sel[0] == "node":
+        p, stage = sel[1]
+        ids = plant.sel(proc=p, stage=stage, **({"bldg": bsel} if bsel else {}))
+        bad = [int(i) for i in ids[np.argsort(plant.now_rank[ids], kind="stable")] if plant.now_rank[i] < NONE_RANK]
+        title = f"{p} · {_stage_name(stage)}" + (f" · {bsel}" if bsel else "")
+        sub = f"이상 센서 {len(bad)}개" if bad else "이상 없음 — 첫 계열 센서를 보여 줌"
+        sids = bad[:4] or [int(i) for i in ids[:2]]
+    else:
+        return
+    st.markdown(f'<div class="sec">④ 공정 상세 트렌드<span>{title} — {sub}</span></div>', unsafe_allow_html=True)
+    for k in range(0, len(sids), 2):
+        for col, i in zip(st.columns(2), sids[k:k + 2]):
+            with col:
+                st.markdown(_sensor_head(plant, i, window), unsafe_allow_html=True)
+                st.plotly_chart(trend_figure(plant, i, window), width="stretch", key=f"tr-{i}-{window}",
+                                config={"displayModeBar": False})
 
 
 def overview():
     plant, window = _ctx()
-    _header("전체 현황", "전 공정 운전값을 한 화면에 — 경고 색 칸이 지금 확인할 곳")
+    all_inc = incidents(plant, window)
+    # 시급한 순: 조치 필요(red) → 확인 필요, 같은 단계면 경고 순위 → 최근 시작
+    act = sorted([x for x in all_inc if x["active"]],
+                 key=lambda x: (_sev(_now(plant, x)[0]) != "red", _now(plant, x)[0], -x["first"].value))
+    sel = _resolve_selection(act + [x for x in all_inc if not x["active"]])
 
-    st.markdown(_kpi_tiles(plant), unsafe_allow_html=True)
-    inc = [x for x in incidents(plant, window) if x["active"]]
-    st.markdown(_ticker(inc), unsafe_allow_html=True)
+    st.markdown('<div class="sec" style="margin-top:0">① 주요 이상점<span>시급한 순 · 누르면 아래 노드·캔버스·트렌드가 함께 바뀜</span></div>',
+                unsafe_allow_html=True)
+    _banner(plant, act, sel)
 
-    st.markdown(_legend_board(), unsafe_allow_html=True)
-    first, *rest = PROCESSES          # 조가 가장 많은 첫 공정은 한 줄 전체, 나머지는 2개씩 나란히
-    _board(plant, first, window, wide=True)
-    for k in range(0, len(rest), 2):
-        for col, p in zip(st.columns(2), rest[k:k + 2]):
-            with col:
-                _board(plant, p, window, wide=False)
+    head, filt = st.columns([3, 1.4], vertical_alignment="bottom")
+    head.markdown('<div class="sec">② 공정 흐름<span>신호등: 초록 정상 · 노랑 확인 필요 · 빨강 조치 필요 · 화살표 색 = 앞 단계 이상의 영향</span></div>',
+                  unsafe_allow_html=True)
+    b = filt.segmented_control("동", ["전체"] + BUILDINGS, default="전체", key="ov_b", label_visibility="collapsed")
+    bsel = None if b in (None, "전체") else b
+    sel_node = (sel[1][1], sel[1][3]) if sel and sel[0] == "inc" else (tuple(sel[1]) if sel else None)
+    _flow(plant, bsel, sel_node)
 
-    if inc:
-        st.subheader("경고 그래프")
-        st.caption(f"진행 중 {len(inc)}건 (같은 계열·같은 조의 경고는 1건으로 묶었어요) — 줄을 누르면 그래프가 펼쳐져요")
-        all_open = st.toggle("진행 중 사고 모두 펼치기", value=False, key="ov_all_open")
-        for n, x in enumerate(inc[:8]):
-            label = (
-                f"{KIND[kind_by_rank(x['rank'])]['icon']} {_status_text(x['rank'])}  ·  {x['title']}  ·  "
-                f"{x['what']}  ·  센서 {len(x['sids'])}개  ·  {x['first']:%H:%M}~"
-            )
-            with st.expander(label, expanded=(all_open or n == 0)):
-                _incident_charts(plant, x, window, f"ov{n}")
-        if len(inc) > 8:
-            st.caption(f"외 {len(inc) - 8}건 — 경고 센터에서 모두 볼 수 있어요")
-        st.page_link(st.session_state["_pages"]["alerts"], label="경고 센터에서 그래프와 함께 보기", icon="🚨")
+    shown = [x for x in all_inc if not bsel or x["bldg"] == bsel]
+    st.markdown(f'<div class="sec">③ 이상점 요약 캔버스<span>{len(shown)}건 · 이상이 있었던 공정만 · 막대 = 지속 시간, 큰 점 = 지금 진행 중 · 점을 누르면 아래 트렌드로</span></div>',
+                unsafe_allow_html=True)
+    st.plotly_chart(_canvas(plant, shown, window, sel), width="stretch", key="ov_canvas", on_select="rerun",
+                    selection_mode="points", config={"displayModeBar": False})
+
+    _detail(plant, sel, all_inc, window, bsel)
 
 
 # ───────────────────────── 2. 공정 상세 ─────────────────────────
+# 조 = 누를 수 있는 탱크(버튼), 탱크 사이는 배관(→)으로 이어 공정 흐름을 그대로 보여 줌. 카드·이모지 없음.
 def _toggle_node(line: str, tank: str):
     s = set(st.session_state.get("proc_open", set()))
     s ^= {(line, tank)}
@@ -1187,7 +1429,7 @@ def _set_open(nodes):
 
 def process():
     plant, window = _ctx()
-    _header("공정 상세", "계열별 흐름도 — 이상 있는 조는 자동으로 펼쳐지고, 박스를 누르면 펼침/접힘이 바뀌어요")
+    _header("공정 상세", "계열별 공정 흐름 — 이상 있는 조는 자동으로 펼쳐지고, 탱크를 누르면 그래프가 펼쳐지거나 접혀요")
 
     jump = st.session_state.pop("_jump", None)
     if jump:
@@ -1197,6 +1439,7 @@ def process():
     b = c[0].selectbox("건물", BUILDINGS, key="proc_b")
     p = c[1].selectbox("공정", PROCESSES, key="proc_p")
     tanks = tanks_of(p)
+    dec = plant.meta["dec"].to_numpy()
 
     # 조(노드)별 상태 · 현재값
     info = {}
@@ -1206,7 +1449,7 @@ def process():
             for prm in params:
                 i = plant.find(b, p, l, tank, prm)
                 worst = min(worst, int(plant.now_rank[i]))
-                vals.append((prm, plant.V[i, -1]))
+                vals.append((prm, plant.V[i, -1], int(dec[i]), bool(plant.active_kinds(i))))
             info[(l, tank)] = (worst, vals)
     abnormal = [k for k, (w, _) in info.items() if w < NONE_RANK]
 
@@ -1223,31 +1466,35 @@ def process():
         ws = [info[(l, t[0])][0] for t in tanks]
         n_bad = sum(w < NONE_RANK for w in ws)
         extra = f" · 이상 {n_bad}개 조" if n_bad else ""
-        st.markdown(
-            f'<div class="lh"><b>{l}</b><span style="color:{_color(min(ws))}">● {_status_text(min(ws))}{extra}</span>'
-            f'<span style="color:#475569;font-size:11px">흐름: 왼쪽 → 오른쪽</span></div>',
-            unsafe_allow_html=True,
-        )
+        st.markdown(f'<div class="lh"><b>{l}</b><span style="color:{_color(min(ws))}">{_status_text(min(ws))}{extra}</span></div>',
+                    unsafe_allow_html=True)
         cols = st.columns(len(tanks), gap="small")
         for ti, (tank, stage, params) in enumerate(tanks):
             w, vals = info[(l, tank)]
-            icon = "🟢" if w >= NONE_RANK else KIND[kind_by_rank(w)]["icon"]
-            label = f"{icon} **{tank}**  \n" + "  \n".join(f"{prm}  {v:.2f}" for prm, v in vals)
+            # 탱크 이름은 기울임(*) → CSS 로 굵은 머리글, 이상 항목은 굵게(**) → CSS 로 그 탱크의 경고 색
+            label = f"*{tank}*  \n" + "  \n".join(
+                f"**{prm} {v:.{d}f}**" if bad else f"{prm} {v:.{d}f}" for prm, v, d, bad in vals
+            )
             key = f"nd-{li}-{ti}"
             with cols[ti]:
                 st.button(label, key=key, on_click=_toggle_node, args=(l, tank), width="stretch")
+            col = _color(w)
             is_open = (l, tank) in opened
-            glow = f"box-shadow:0 0 10px {_color(w)}66;" if w < NONE_RANK else ""
-            border = "2px solid #0e7490" if is_open else f"1px solid {_color(w)}aa"
-            bg = "background:#ecfeff !important;" if is_open else ""
-            css.append(f".st-key-{key} button{{border:{border} !important;{glow}{bg}}}")
+            edge = col if w < NONE_RANK else "#475569"                # 정상 탱크는 조용하게 (색 띠 없음)
+            rule = (f".st-key-{key} button{{border:2px solid {edge} !important;"
+                    f"border-left:{8 if w < NONE_RANK else 2}px solid {edge} !important;"
+                    f"{'background:#ecfeff !important;' if is_open else ''}}}"
+                    f".st-key-{key} button strong{{color:{col};}}")
+            if ti == len(tanks) - 1:                                   # 마지막 탱크 뒤에는 배관 없음
+                rule += f".st-key-{key}::before,.st-key-{key}::after{{display:none;}}"
+            css.append(rule)
 
         for tank, stage, params in tanks:                          # 펼친 조의 그래프를 해당 계열 바로 아래에
             if (l, tank) in opened:
-                st.markdown(f"##### ▼ {b} · {p} · {l} · {tank}")
-                for col, prm in zip(st.columns(len(params)), params):
-                    with col:
-                        _sensor_card(plant, plant.find(b, p, l, tank, prm), window, height=240)
+                st.markdown(f'<div class="xh">{b} · {p} · {l} · <b>{tank}</b></div>', unsafe_allow_html=True)
+                for col_, prm in zip(st.columns(len(params)), params):
+                    with col_:
+                        _sensor_card(plant, plant.find(b, p, l, tank, prm), window, height=230)
     st.markdown("<style>" + "".join(css) + "</style>", unsafe_allow_html=True)
     _legend()
 
@@ -1274,8 +1521,8 @@ def compare():
         for tank, _, _ in cols:
             i = plant.find(b, p, l, tank, prm)
             ks = plant.active_kinds(i)
-            icon = KIND[ks[0]]["icon"] if ks else "🟢"
-            titles.append(f"{icon} {l[0]} · {tank}  {plant.V[i, -1]:.2f}")
+            mark = f" <span style='color:{KIND[ks[0]]['color']}'>■ {_kind_name(ks[0])}</span>" if ks else ""
+            titles.append(f"<b>{l[0]}</b> · {tank}  {plant.V[i, -1]:.2f}{mark}")
     fig = make_subplots(rows=nr, cols=nc, subplot_titles=titles, shared_xaxes=True, shared_yaxes="columns",
                         vertical_spacing=0.06, horizontal_spacing=0.025)
 
@@ -1321,17 +1568,46 @@ def compare():
 
 
 # ───────────────────────── 4. 경고 센터 ─────────────────────────
+# 카드 목록 대신: 위에 시간축 알람 타임라인(사고마다 언제부터 얼마나), 아래에 선으로 구분한 사고별 그래프 목록.
+def _timeline(plant, inc: list[dict], window: int) -> go.Figure:
+    x = plant.idx[-window:]
+    step = x[1] - x[0]
+    labels, seen = [], set()
+    for n, it in enumerate(inc):
+        what = it["what"] if len(it["what"]) <= 28 else it["what"][:27] + "…"
+        lab = f"{it['title']} · {what}"
+        labels.append(lab if lab not in seen else f"{lab} ({n})")
+        seen.add(labels[-1])
+    fig = go.Figure()
+    for kind in sorted(KIND, key=lambda k: -KIND[k]["rank"]):        # 덜 심한 것부터 그려서 심한 게 위에 보이게
+        xs, ys = [], []
+        for lab, it in zip(labels, inc):
+            mask = plant.F[kind][it["sids"], -window:].any(axis=0)
+            for s0, s1 in _spans(mask, x):
+                xs += [s0, s1 + step, None]
+                ys += [lab, lab, None]
+        if xs:
+            fig.add_trace(go.Scatter(x=xs, y=ys, mode="lines", line=dict(color=KIND[kind]["color"], width=11),
+                                     name=_kind_name(kind), hovertemplate=f"{_kind_name(kind)}<br>%{{x|%m/%d %H:%M}}<extra></extra>"))
+    fig.add_vline(x=x[-1], line=dict(color="#1e293b", width=1, dash="dot"))
+    fig.update_yaxes(categoryorder="array", categoryarray=labels, autorange="reversed", showgrid=True,
+                     gridcolor="rgba(15,23,42,.06)", tickfont=dict(size=12, color="#0f172a"))
+    fig.update_xaxes(tickformat="%H:%M" if window <= 288 else "%m/%d %H:%M", range=[x[0], x[-1] + step])
+    fig.update_layout(height=26 * len(inc) + 80, margin=dict(l=8, r=8, t=30, b=8),
+                      legend=dict(orientation="h", y=1.02, yanchor="bottom", x=0, font=dict(size=11), traceorder="reversed"))
+    return style(fig)
+
+
 def alerts():
     plant, window = _ctx()
-    _header("경고 센터", "사고(같은 계열·같은 조) 단위로 묶어서, 그래프와 함께 쭉 훑어보기")
+    _header("경고 센터", "사고(같은 계열·같은 조) 단위 — 위 타임라인으로 언제부터인지 보고, 아래로 스크롤하며 그래프 확인")
     inc = incidents(plant, window)
     if not inc:
         st.success(f"최근 {st.session_state.get('range', '24시간')} 동안 경고가 없습니다.")
         return
 
     f = st.columns([2.6, 1, 1, 1.2], vertical_alignment="bottom")
-    kinds = f[0].multiselect("경고 유형", list(KIND), default=list(KIND),
-                             format_func=lambda k: f"{KIND[k]['icon']} {KIND[k]['label'].split('(')[0]}")
+    kinds = f[0].multiselect("경고 유형", list(KIND), default=list(KIND), format_func=_kind_name)
     bld = f[1].selectbox("건물", ["전체"] + BUILDINGS)
     prc = f[2].selectbox("공정", ["전체"] + PROCESSES)
     only_active = f[3].toggle("진행 중만", value=True)
@@ -1350,29 +1626,23 @@ def alerts():
         st.info("조건에 맞는 경고가 없습니다.")
         return
     n_act = sum(x["active"] for x in inc)
-    st.caption(f"사고 {len(inc)}건 (진행 중 {n_act} · 해소 {len(inc) - n_act})  —  아래로 스크롤하며 확인하세요")
-    _legend()
+    st.markdown(f'<div class="sec">알람 타임라인<span>사고 {len(inc)}건 · 진행 중 {n_act} · 해소 {len(inc) - n_act} · 점선 = 지금</span></div>',
+                unsafe_allow_html=True)
+    st.plotly_chart(_timeline(plant, inc, window), width="stretch", key=f"tl-{window}-{len(inc)}", config={"displayModeBar": False})
 
+    st.markdown('<div class="sec">사고별 그래프<span>아래로 스크롤하며 확인</span></div>', unsafe_allow_html=True)
+    _legend()
     shown = st.session_state.setdefault("_alert_n", 8)
     for x in inc[:shown]:
-        ev = x["ev"]
-        with st.container(border=True):
-            top = st.columns([3, 2])
-            tag = "진행 중" if x["active"] else "해소됨"
-            top[0].markdown(
-                f'#### <span style="color:{_color(x["rank"])}">●</span> {x["title"]}'
-                f'<br><span style="font-size:13px;color:#475569;font-weight:400">{x["what"]}  |  {tag}  |  '
-                f'{x["first"]:%H:%M} → {x["last"]:%H:%M}</span>',
-                unsafe_allow_html=True,
-            )
-            top[1].markdown(
-                "<br>" + "&nbsp;&nbsp;".join(
-                    f'<span style="color:{KIND[k]["color"]};font-weight:700">● {KIND[k]["label"].split("(")[0]}</span>'
-                    for k in sorted(set(ev["kind"]), key=lambda k: KIND[k]["rank"])
-                ),
-                unsafe_allow_html=True,
-            )
-            _incident_charts(plant, x, window, "a")
+        ks = " · ".join(f'<span style="color:{KIND[k]["color"]}">{_kind_name(k)}</span>'
+                        for k in sorted(set(x["ev"]["kind"]), key=lambda k: KIND[k]["rank"]))
+        st.markdown(
+            f'<div class="ih" style="--c:{_color(x["rank"])}"><span class="t">{x["first"]:%H:%M} → {x["last"]:%H:%M}</span>'
+            f'<b>{x["title"]}</b><span class="w">{x["what"]}</span>'
+            f'<span class="g">{"진행 중" if x["active"] else "해소됨"}</span><span class="ks">{ks}</span></div>',
+            unsafe_allow_html=True,
+        )
+        _incident_charts(plant, x, window, "a")
     if shown < len(inc):
         if st.button(f"더 보기 ({len(inc) - shown}건 남음)"):
             st.session_state["_alert_n"] = shown + 8

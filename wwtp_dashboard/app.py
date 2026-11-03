@@ -7,101 +7,112 @@ import streamlit as st
 st.set_page_config(page_title="WWTP 품질 관제", page_icon="💧", layout="wide", initial_sidebar_state="collapsed")
 
 import views  # noqa: E402  (set_page_config 이후 import)
-from core import KIND, get_plant, incidents  # noqa: E402
+from core import get_plant, incidents  # noqa: E402
 from views import RANGES  # noqa: E402
 
 CSS = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&display=swap');
 
+/* 템플릿 금지: 둥근 카드·그림자·타일 대신 현장 HMI 패널처럼 선과 글자 크기로 구분 */
+:root { --mono: 'D2Coding', 'Consolas', 'Menlo', monospace; --ink:#0f172a; --rule:#1e293b; --mute:#64748b; }
+
 /* 사이드바 제거 → 상단 내비 + 헤더 바. 현장 모니터(와이드)에 맞춰 폭을 넓게 */
 [data-testid="stSidebar"], [data-testid="stSidebarCollapsedControl"] { display: none; }
 .block-container { padding-top: 4.5rem; max-width: 1920px; }
 
-/* 헤더 바 */
-.wwtp-bar { display:flex; align-items:center; gap:14px; padding:10px 16px; margin-bottom:6px;
-  background:#ffffff; border:1px solid #cbd5e1; border-left:6px solid #0e7490; border-radius:10px;
-  box-shadow:0 1px 3px rgba(15,23,42,.08); }
-.wwtp-logo { width:38px; height:38px; border-radius:9px; display:flex; align-items:center; justify-content:center;
-  background:#ecfeff; border:1px solid #67e8f9; font-size:20px; }
-.wwtp-title { font-weight:800; letter-spacing:.04em; color:#0f172a; font-size:15px; line-height:1.2; }
-.wwtp-sub { color:#64748b; font-size:11px; }
-.wwtp-live { font-family:'Orbitron',sans-serif; font-size:10px; padding:2px 8px; border-radius:5px;
-  color:#0e7490; background:#ecfeff; border:1px solid #67e8f9; margin-left:8px; }
-.wwtp-pill { margin-left:auto; padding:6px 14px; border-radius:8px; font-size:13px; font-weight:800; }
-.wwtp-pill.bad { color:#ffffff; background:#dc2626; border:1px solid #b91c1c; animation: glow 1.6s infinite; }
-.wwtp-pill.ok { color:#ffffff; background:#16a34a; border:1px solid #15803d; }
-@keyframes glow { 0%,100% { box-shadow:0 0 0 0 rgba(220,38,38,.55);} 50% { box-shadow:0 0 0 6px rgba(220,38,38,0);} }
+/* 헤더: 상자 없이 굵은 밑줄 하나 */
+.wwtp-bar { display:flex; align-items:center; gap:14px; padding:2px 0 8px; margin-bottom:4px; border-bottom:3px solid var(--rule); }
+.wwtp-mark { font-family:var(--mono); font-weight:800; font-size:13px; letter-spacing:.1em; color:#fff; background:var(--rule); padding:7px 9px; }
+.wwtp-title { font-weight:800; letter-spacing:.06em; color:var(--ink); font-size:15px; line-height:1.2; }
+.wwtp-sub { color:var(--mute); font-size:11px; }
+.wwtp-live { font-family:var(--mono); font-size:10px; padding:1px 6px; color:#0e7490; border:1px solid #0e7490; margin-left:8px; }
+.wwtp-pill { margin-left:auto; padding:6px 14px; font-size:13px; font-weight:800; font-family:var(--mono); letter-spacing:.04em; }
+.wwtp-pill.bad { color:#fff; background:#dc2626; animation: glow 1.6s infinite; }
+.wwtp-pill.ok { color:#fff; background:#16a34a; }
+@keyframes glow { 0%,100% { box-shadow:0 0 0 0 rgba(220,38,38,.55);} 50% { box-shadow:0 0 0 5px rgba(220,38,38,0);} }
 
-/* 카드(테두리 컨테이너) */
-div[data-testid="stVerticalBlockBorderWrapper"] {
-  background:#ffffff; border:1px solid #d5dde7 !important; border-radius:10px; box-shadow:0 1px 2px rgba(15,23,42,.05);
-}
-div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="stVerticalBlockBorderWrapper"] { box-shadow:none; }
+/* 테두리 컨테이너·펼침 상자: 직각, 그림자 없음 */
+div[data-testid="stVerticalBlockBorderWrapper"] { background:#ffffff; border:1px solid #cbd5e1 !important; border-radius:0 !important; box-shadow:none; }
+[data-testid="stExpander"] details { border-radius:0 !important; border-color:#cbd5e1 !important; background:#ffffff; }
 
 /* 숫자는 계기판 폰트 */
 [data-testid="stMetricValue"] { font-family:'Orbitron',sans-serif; color:#0e7490; font-weight:700; }
 [data-testid="stMetricLabel"] { color:#475569; }
 h3 { letter-spacing:.02em; }
+.sec { font-weight:800; font-size:13px; letter-spacing:.08em; color:var(--ink); border-bottom:2px solid var(--rule);
+  margin:18px 0 6px; padding-bottom:3px; display:flex; justify-content:space-between; align-items:baseline; }
+.sec span { font-weight:400; letter-spacing:0; color:var(--mute); font-size:12px; }
 
-/* 전체 현황: KPI 타일 */
-.kp { display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr)); gap:10px; margin:4px 0 10px; }
-.kt { background:#ffffff; border:1px solid #d5dde7; border-left:8px solid #cbd5e1; border-radius:10px; padding:10px 14px; }
-.kt .kl { font-size:13px; color:#475569; font-weight:700; }
-.kt .kv { font-family:'Orbitron',sans-serif; font-size:30px; font-weight:700; color:#94a3b8; line-height:1.25; }
-.kt .kv small { font-size:15px; color:#64748b; }
-.kt.ok .kv { color:#16a34a; }
-.kt.hot { color:#ffffff; }
-.kt.hot .kl, .kt.hot .kv, .kt.hot .kv small { color:#ffffff; }
-.kt.pulse { animation: glow 1.6s infinite; }
+/* 전체 현황 ① 주요 이상점 요약 바 (색·깜빡임은 views._banner 가 바마다 넣음) */
+[class*="st-key-bn-"] button { justify-content:flex-start; border:0 !important; border-radius:0 !important; padding:8px 14px !important;
+  min-height:0; height:auto; }
+[class*="st-key-bn-"] button div { width:100%; justify-content:flex-start; text-align:left; }
+[class*="st-key-bn-"] button p { font-size:14px; font-weight:700; text-align:left; color:#ffffff; margin:0; }
+[class*="st-key-bn-"] button:hover { filter:brightness(1.08); }
+.st-key-bn-0 button { padding:13px 16px !important; }
+.st-key-bn-0 button p { font-size:17px; font-weight:800; }
+.ok-bar { background:#16a34a; color:#fff; font-weight:800; padding:12px 16px; }
+@keyframes pulseR { 0%,100% { box-shadow:0 0 0 0 rgba(220,38,38,0); } 50% { box-shadow:0 0 16px 2px rgba(220,38,38,.55); } }
 
-/* 전체 현황: 진행 중 경고 띠 */
-.tk { display:flex; flex-wrap:wrap; gap:8px; margin:2px 0 12px; }
-.tc { padding:7px 12px; border-radius:8px; color:#ffffff; font-size:14px; font-weight:700; }
-.tc span { font-weight:500; opacity:.92; }
-.tk-ok { padding:10px 14px; border-radius:8px; background:#16a34a; color:#fff; font-weight:800; font-size:15px; margin-bottom:12px; }
+/* 전체 현황 ② 공정 흐름 노드(신호등 + 글로우) + 영향 화살표 */
+[class*="st-key-fn-"] button { height:auto; min-height:0; padding:8px 10px; justify-content:flex-start; border-radius:6px !important; }
+[class*="st-key-fn-"] button p { font-size:12px; line-height:1.45; text-align:left; margin:0; color:#475569; }
+[class*="st-key-fn-"] button em { font-style:normal; font-weight:800; font-size:13px; color:var(--ink); }
+[class*="st-key-fn-"] button strong { font-weight:800; }
+@keyframes glowR { 0%,100% { box-shadow:0 0 4px 0 rgba(220,38,38,.25); } 50% { box-shadow:0 0 18px 4px rgba(220,38,38,.5); } }
+@keyframes glowY { 0%,100% { box-shadow:0 0 3px 0 rgba(245,158,11,.25); } 50% { box-shadow:0 0 16px 3px rgba(245,158,11,.5); } }
+.ln2 { font-weight:800; font-size:16px; color:var(--ink); line-height:1.2; }
+.ln2 small { display:block; font-size:11.5px; font-weight:700; margin-top:2px; }
+.fa { position:relative; height:40px; }
+.fa i { position:absolute; left:0; right:11px; top:24px; height:4px; background:var(--c); }
+.fa i::after { content:""; position:absolute; right:-11px; top:-6px; border-left:12px solid var(--c);
+  border-top:8px solid transparent; border-bottom:8px solid transparent; }
+.fa b { position:absolute; left:0; right:0; top:4px; text-align:center; font-size:10.5px; color:var(--c); }
 
-/* 전체 현황: 운전 보드 */
-.bt { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 12px; font-size:14px; color:#475569; }
-.bt > * { white-space:nowrap; }
-.bt b { font-size:20px; color:#0f172a; }
-.bt .st { font-weight:800; }
-.bd-wrap { overflow-x:auto; }
-table.bd { border-collapse:collapse; width:100%; font-size:14px; }
-table.bd.nr { font-size:13px; }
-table.bd.nr td, table.bd.nr th { padding:4px 1px; }
-.bd th { background:#334155; color:#ffffff; font-weight:700; font-size:12px; padding:4px 2px; text-align:center;
-  border:1px solid #475569; white-space:nowrap; }
-.bd tr.h2 th { background:#e2e8f0; color:#1e293b; border-color:#cbd5e1; }
-.bd th small { display:block; font-weight:400; color:#64748b; font-size:10px; }
-.bd td { background:#ffffff; color:#0f172a; border:1px solid #e2e8f0; text-align:center; padding:5px 2px;
-  font-weight:600; font-variant-numeric:tabular-nums; white-space:nowrap; cursor:default; }
-.bd td.rb { background:#f1f5f9; color:#0f172a; font-weight:800; font-size:13px; }
-.bd td.rl { background:#f8fafc; color:#334155; font-weight:700; font-size:13px; }
-.bd tr.bs td { border-top:3px solid #64748b; }
-.bd td.k { color:#ffffff; font-weight:800; }
-.bd td.res { background:#e2e8f0; color:#64748b; }
-.bd td.k-SPEC { animation: blink 1.1s steps(2, start) infinite; }
-.bd .ar { font-size:10px; margin-left:2px; opacity:.75; }
-@keyframes blink { 50% { background:#7f1d1d; } }
-.lg { display:flex; flex-wrap:wrap; gap:6px 14px; font-size:12px; color:#475569; margin:2px 0 8px; align-items:center; }
-.lg i { display:inline-block; width:14px; height:14px; border-radius:3px; vertical-align:-2px; margin-right:4px; border:1px solid #cbd5e1; }
+/* 공정 상세: 계열 머리 + 탱크(버튼) + 탱크 사이 배관 */
+.lh { display:flex; gap:12px; align-items:center; margin:16px 0 6px; font-size:13px; font-weight:700;
+  border-bottom:1px solid #94a3b8; padding-bottom:4px; }
+.lh b { background:var(--rule); color:#fff; font-family:var(--mono); padding:2px 9px; font-size:13px; }
+[class*="st-key-nd-"] { position:relative; }
+[class*="st-key-nd-"]::after { content:""; position:absolute; top:50%; right:-1rem; width:1rem; height:3px;
+  background:#475569; transform:translateY(-50%); }
+[class*="st-key-nd-"]::before { content:""; position:absolute; top:50%; right:-1rem; transform:translateY(-50%);
+  border-left:8px solid #475569; border-top:6px solid transparent; border-bottom:6px solid transparent; z-index:1; }
+[class*="st-key-nd-"] button { height:auto; min-height:0; padding:6px 10px; justify-content:flex-start; background:#ffffff;
+  border-radius:0 !important; box-shadow:none !important; }
+[class*="st-key-nd-"] button:hover { background:#f1f5f9; }
+[class*="st-key-nd-"] button p { font-size:12px; line-height:1.5; text-align:left; margin:0; font-family:var(--mono); color:var(--mute); }
+[class*="st-key-nd-"] button em { font-style:normal; font-family:'Malgun Gothic',sans-serif; font-weight:800; font-size:13px; color:var(--ink); }
+[class*="st-key-nd-"] button strong { font-weight:800; }
+.xh { margin:8px 0 2px; font-size:13px; color:var(--mute); border-left:4px solid #0e7490; padding-left:8px; }
+.xh b { color:var(--ink); }
 
-/* 공정 상세: 흐름도(조 = 버튼) */
-.lh { display:flex; gap:14px; align-items:baseline; margin:14px 0 6px; font-size:13px; } .lh b { color:#0f172a; font-size:14px; }
-[class*="st-key-nd-"] button { height:auto; min-height:0; padding:7px 10px; justify-content:flex-start; background:#ffffff; }
-[class*="st-key-nd-"] button:hover { background:#ecfeff; }
-[class*="st-key-nd-"] button p { font-size:12px; line-height:1.55; text-align:left; margin:0; }
+/* 센서 머리글 (카드·metric 위젯 대신 선 하나) */
+.sh { border-top:2px solid var(--rule); padding:4px 0 0; display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 10px; }
+.sh .p { font-weight:800; font-size:13px; color:var(--ink); }
+.sh .v { font-family:var(--mono); font-size:24px; font-weight:700; line-height:1.1; }
+.sh .u { color:var(--mute); font-size:12px; margin-left:-6px; }
+.sh .dl { font-family:var(--mono); color:var(--mute); font-size:12px; }
+.sh .s { margin-left:auto; font-size:12.5px; font-weight:800; }
+.sh .x { flex-basis:100%; font-size:11.5px; color:var(--mute); }
+
+/* 경고 센터: 사고 머리 (카드 대신 왼쪽 색 막대 + 굵은 윗선) */
+.ih { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 14px; margin:18px 0 6px; padding:6px 10px;
+  border-top:2px solid var(--rule); border-left:6px solid var(--c); background:#ffffff; font-size:13px; }
+.ih .t { font-family:var(--mono); font-weight:700; color:var(--ink); }
+.ih b { font-size:15px; color:var(--ink); }
+.ih .w { color:#475569; }
+.ih .g { font-family:var(--mono); font-size:11px; padding:1px 6px; border:1px solid currentColor; color:var(--c); }
+.ih .ks { margin-left:auto; font-weight:800; }
 </style>
 """
-# 경고 종류별 칸 색 (색 의미는 core.KIND 하나로 고정)
-CSS += "<style>" + "".join(f".bd td.k-{k}, .lg i.k-{k} {{ background:{v['color']}; }}" for k, v in KIND.items()) + "</style>"
 
 pages = {
-    "overview": st.Page(views.overview, title="전체 현황", icon="🏭", default=True),
-    "process": st.Page(views.process, title="공정 상세", icon="🔎", url_path="process"),
-    "compare": st.Page(views.compare, title="한눈에 비교", icon="📊", url_path="compare"),
-    "alerts": st.Page(views.alerts, title="경고 센터", icon="🚨", url_path="alerts"),
+    "overview": st.Page(views.overview, title="전체 현황", icon=":material/monitor_heart:", default=True),
+    "process": st.Page(views.process, title="공정 상세", icon=":material/account_tree:", url_path="process"),
+    "compare": st.Page(views.compare, title="한눈에 비교", icon=":material/grid_view:", url_path="compare"),
+    "alerts": st.Page(views.alerts, title="경고 센터", icon=":material/notifications:", url_path="alerts"),
 }
 st.session_state["_pages"] = pages
 nav = st.navigation(list(pages.values()), position="top")
@@ -111,13 +122,13 @@ st.markdown(CSS, unsafe_allow_html=True)
 plant = get_plant()
 n_inc = sum(x["active"] for x in incidents(plant, RANGES[st.session_state.get("range", "24시간")]))
 pill = (
-    f'<span class="wwtp-pill bad">⚠ 진행 중 사고 {n_inc}건</span>'
+    f'<span class="wwtp-pill bad">진행 중 사고 {n_inc}</span>'
     if n_inc
-    else '<span class="wwtp-pill ok">● 전 센서 정상</span>'
+    else '<span class="wwtp-pill ok">전 센서 정상</span>'
 )
 bar, ctl = st.columns([3.2, 1.4], vertical_alignment="center")
 bar.markdown(
-    f"""<div class="wwtp-bar"><div class="wwtp-logo">💧</div>
+    f"""<div class="wwtp-bar"><div class="wwtp-mark">WWTP</div>
     <div><div class="wwtp-title">WWTP QUALITY CONTROL<span class="wwtp-live">LIVE · DEMO</span></div>
     <div class="wwtp-sub">폐수처리 공정 수질 · 센서 {plant.n}개 이상 감지 관제</div></div>{pill}</div>""",
     unsafe_allow_html=True,

@@ -1,4 +1,4 @@
-"""Plotly 차트: 추이 + 규격선 + 근접/이탈 구간 + 이상 구간 + 동료 비교."""
+"""Plotly 차트: 센서 추이(sensor_figure) · 이상점 트렌드(trend_figure, 전체 현황용)."""
 from __future__ import annotations
 
 import numpy as np
@@ -100,4 +100,82 @@ def sensor_figure(plant: Plant, i: int, window: int, height: int = 230, peers: b
         xaxis=dict(tickformat="%H:%M" if window <= 288 else "%m/%d %H:%M", showgrid=False),
         yaxis=dict(range=[y0, y1], title=None),
     )
+    return style(fig)
+
+
+SEV_RGB = {"red": "220,38,38", "yellow": "245,158,11"}
+
+
+def trend_figure(plant: Plant, i: int, window: int, height: int = 260) -> go.Figure:
+    """이상점 트렌드: 영역 차트 + 임계치(USL/LSL) 점선 + 이상 구간 음영(조치 필요 = 빨강, 확인 필요 = 노랑)
+    + 임계치를 넘은 점은 큰 붉은 마커 + 차트 위쪽 경고 문구."""
+    unit, dec = plant.meta["unit"].iat[i], int(plant.meta["dec"].iat[i])
+    lsl, usl = plant.lsl[i], plant.usl[i]
+    has_l = not np.isnan(lsl)
+    x = plant.idx[-window:]
+    y = plant.V[i, -window:]
+    lo = min(y.min(), lsl if has_l else y.min())
+    hi = max(y.max(), usl)
+    pad = (hi - lo) * 0.08
+    y0, y1 = lo - pad, hi + pad
+
+    fig = go.Figure()
+    red = np.zeros(window, bool)
+    yel = np.zeros(window, bool)
+    for k, v in KIND.items():
+        if v["sev"] == "red":
+            red |= plant.F[k][i, -window:]
+        else:
+            yel |= plant.F[k][i, -window:]
+    yel &= ~red
+    for mask, sev in ((red, "red"), (yel, "yellow")):
+        for a, b in _spans(mask, x):
+            fig.add_vrect(x0=a, x1=b, fillcolor=f"rgba({SEV_RGB[sev]},.13)", line_width=0, layer="below")
+
+    # 영역 차트: 아래 경계(y0)까지 채움
+    fig.add_trace(go.Scatter(x=x, y=np.full(window, y0), mode="lines", line=dict(width=0), hoverinfo="skip", showlegend=False))
+    fig.add_trace(go.Scatter(x=x, y=y, mode="lines", line=dict(color=LINE_COLOR, width=1.8), fill="tonexty",
+                             fillcolor="rgba(14,116,144,.12)", showlegend=False,
+                             hovertemplate="%{x|%H:%M}  <b>%{y:." + str(dec) + "f}</b> " + unit + "<extra></extra>"))
+    mem = plant.members[plant.G[i]]
+    mem = mem[mem != i]
+    if len(mem):
+        fig.add_trace(go.Scatter(x=x, y=np.median(plant.V[mem][:, -window:], axis=0), mode="lines",
+                                 line=dict(color="#94a3b8", width=1, dash="dot"), showlegend=False,
+                                 hovertemplate="동료 중앙값 %{y:.2f}<extra></extra>"))
+
+    for val, name in ((usl, "USL"), (lsl if has_l else None, "LSL")):
+        if val is not None:
+            fig.add_hline(y=val, line=dict(color="#dc2626", width=1.4, dash="dash"), annotation_text=f"{name} {val:g}",
+                          annotation_position="top left" if name == "USL" else "bottom left",
+                          annotation_font=dict(size=10, color="#dc2626"))
+
+    out = (y > usl) | ((y < lsl) if has_l else np.zeros(window, bool))
+    if out.any():
+        fig.add_trace(go.Scatter(x=x[out], y=y[out], mode="markers", showlegend=False,
+                                 marker=dict(color="#dc2626", size=11, line=dict(color="#ffffff", width=1.5)),
+                                 hovertemplate="임계치 초과 %{x|%H:%M}  <b>%{y:." + str(dec) + "f}</b><extra></extra>"))
+
+    # 상단 경고 문구
+    text, color = "", "#b45309"
+    if out.any():
+        dev = np.where(y > usl, y - usl, (lsl - y) if has_l else 0)
+        j = int(np.argmax(np.where(out, dev, -np.inf)))
+        low = has_l and y[j] < lsl
+        text = (f"⚠ {'하한 이탈' if low else '상한 초과'} · {'최저' if low else '최고'} {y[j]:.{dec}f} {unit} ({x[j]:%H:%M})"
+                f" · 임계치 밖 {int(out.sum()) * 5}분")
+        color = "#dc2626"
+    else:
+        kinds = plant.active_kinds(i) or plant.window_kinds(i, window)
+        if kinds:
+            first = int(np.argmax(plant.F[kinds[0]][i, -window:]))
+            text = f"⚠ {KIND[kinds[0]]['label'].split('(')[0]} · {x[first]:%H:%M}부터"
+            color = "#dc2626" if KIND[kinds[0]]["sev"] == "red" else "#b45309"
+    if text:
+        fig.add_annotation(xref="paper", yref="paper", x=0, y=1.02, xanchor="left", yanchor="bottom", showarrow=False,
+                           text=f"<b>{text}</b>", font=dict(size=12, color=color))
+
+    fig.update_layout(height=height, margin=dict(l=8, r=8, t=28, b=8), showlegend=False, hovermode="x unified",
+                      xaxis=dict(tickformat="%H:%M" if window <= 288 else "%m/%d %H:%M", showgrid=False),
+                      yaxis=dict(range=[y0, y1], title=None))
     return style(fig)
