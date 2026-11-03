@@ -6,19 +6,25 @@ import plotly.graph_objects as go
 
 from core import KIND, Plant
 
-LINE_COLOR = "#22d3ee"
+LINE_COLOR = "#0e7490"
+BAND_KINDS = [k for k in KIND if k not in ("SPEC", "NEAR")]   # 세로 음영으로 보여 줄 경고
+
+
+def rgb(hex_color: str) -> str:
+    h = hex_color.lstrip("#")
+    return ",".join(str(int(h[i:i + 2], 16)) for i in (0, 2, 4))
 
 
 def style(fig: go.Figure) -> go.Figure:
-    """다크 관제 테마 공통 스타일."""
+    """밝은 현장 모니터 테마 공통 스타일."""
     fig.update_layout(
-        template="plotly_dark",
+        template="plotly_white",
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(color="#94a3b8"),
+        font=dict(color="#475569"),
     )
-    fig.update_xaxes(gridcolor="rgba(255,255,255,.05)", zeroline=False)
-    fig.update_yaxes(gridcolor="rgba(255,255,255,.05)", zeroline=False)
+    fig.update_xaxes(gridcolor="rgba(15,23,42,.07)", zeroline=False)
+    fig.update_yaxes(gridcolor="rgba(15,23,42,.07)", zeroline=False)
     return fig
 
 
@@ -56,10 +62,10 @@ def sensor_figure(plant: Plant, i: int, window: int, height: int = 230, peers: b
         fig.add_hrect(y0=lsl, y1=lsl + m, fillcolor="rgba(249,115,22,.14)", line_width=0, layer="below")
         fig.add_hrect(y0=y0, y1=lsl, fillcolor="rgba(239,68,68,.12)", line_width=0, layer="below")
 
-    # 이상 구간 세로 음영 (Hold / σ 초과 / 동료 이탈)
-    for kind, rgb in (("HOLD", "59,130,246"), ("STD", "168,85,247"), ("PEER", "236,72,153")):
+    # 이상 구간 세로 음영 (Hold / σ 초과 / 동료 이탈 / 공정 연관 규칙) — 색은 KIND 의 경고 색
+    for kind in BAND_KINDS:
         for a, b in _spans(plant.F[kind][i, -window:], x):
-            fig.add_vrect(x0=a, x1=b, fillcolor=f"rgba({rgb},.16)", line_width=0, layer="below")
+            fig.add_vrect(x0=a, x1=b, fillcolor=f"rgba({rgb(KIND[kind]['color'])},.16)", line_width=0, layer="below")
 
     # 동료(같은 항목 다른 센서) 범위 + 중앙값
     if peers:
@@ -69,8 +75,8 @@ def sensor_figure(plant: Plant, i: int, window: int, height: int = 230, peers: b
             P = plant.V[mem][:, -window:]
             fig.add_trace(go.Scatter(x=x, y=P.min(axis=0), mode="lines", line=dict(width=0), hoverinfo="skip", showlegend=False))
             fig.add_trace(go.Scatter(x=x, y=P.max(axis=0), mode="lines", line=dict(width=0), fill="tonexty",
-                                     fillcolor="rgba(148,163,184,.16)", hoverinfo="skip", showlegend=False))
-            fig.add_trace(go.Scatter(x=x, y=np.median(P, axis=0), mode="lines", line=dict(color="#94a3b8", width=1.2, dash="dot"),
+                                     fillcolor="rgba(100,116,139,.16)", hoverinfo="skip", showlegend=False))
+            fig.add_trace(go.Scatter(x=x, y=np.median(P, axis=0), mode="lines", line=dict(color="#64748b", width=1.2, dash="dot"),
                                      hovertemplate="동료 중앙값 %{y:.2f}<extra></extra>", showlegend=False))
 
     fig.add_trace(

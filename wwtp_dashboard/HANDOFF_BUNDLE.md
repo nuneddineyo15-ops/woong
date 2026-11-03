@@ -11,8 +11,8 @@
 
 | 항목 | 상태 |
 |---|---|
-| 데모 데이터로 4개 탭 동작 | ✅ 완료 (센서 648개, 5분 간격 3일치) |
-| 감지 규칙 5종 + 사고 묶기 | ✅ 완료 (데모 기준 오탐 하루 1건 수준) |
+| 데모 데이터로 4개 탭 동작 | ✅ 완료 (센서 960개, 5분 간격 8일치) |
+| 감지 규칙 8종 + 사고 묶기 | ✅ 완료 (기본 5종 + 공정 연관 3종, 데모 기준 오탐 규칙별 하루 1건 이하) |
 | **사내 데이터 연결** | ⬜ **미착수** — `core.get_plant()` 교체 필요 (4-2) |
 | **실제 규격값(LSL/USL, σ 기준)** | ⬜ **미착수** — 현재 값은 전부 임의 placeholder (4-3) |
 | 결측 / 점검 마스킹 / 기준선 롤링 | ⬜ 미구현 (4-4) |
@@ -33,16 +33,18 @@
 - 건물마다 공정 4개: **유기, 무기1, 무기2, 산폐수**
 - 공정마다 **계열 4개** (A~D계열)
 - **유기 계열** (흐름 순서): 전탈조 → 폭기조1~5 → 후탈조 → 재폭기조 → 침전조
-  - 폭기조, 재폭기조: **DO, pH**
-  - 전탈조, 후탈조: **NO3-N, 외부탄소원 투입유량**
+  - 폭기조, 재폭기조: **DO, pH, 공기개도(%)**
+  - 전탈조, 후탈조: **NO3-N, 외부탄소원 투입유량, 탄소원개도(%)**
   - 침전조: **SS, torque**
-  - → 계열당 센서 18개
+  - → 계열당 센서 26개
 - **무기1 / 무기2 / 산폐수 계열** (반응조 3개는 직렬 1→2→3): 반응조1~3 → 응집조 → 침전조
-  - 반응조: **pH, 소석회 투입유량, 응결제 투입유량**
-  - 응집조: **고분자 투입유량**
+  - 반응조: **pH, CaOH2·AFR·FR 투입 농도, CaOH2개도(%)**
+  - 응집조: **Polymer 투입 농도**
   - 침전조: **F, SS**
-  - → 계열당 센서 12개
-- 전체: 유기 3×4×18 = 216, 무기류 3공정×3동×4계열×12 = 432 → **648개** (전/후탈조·재폭기조·침전조는 계열당 1개씩이라고 확인함)
+  - → 계열당 센서 18개
+- 전체: 유기 3동×4계열×26 = 312, 무기류 3공정×3동×4계열×18 = 648 → **960개**
+- **약품 태그 이름 (사용자가 알려줌, 2026-11-04)**: `CaoH2_Concetraion`, `AFR_Concentration`, `FR_Concentraion`(약품), `Polymer_Concentration`(고분자). 유량이 아니라 **농도**. 철자는 사용자가 적은 그대로 — 실제 태그명과 대조 필요. 화면 이름은 CaOH2/AFR/FR/Polymer.
+- ⚠ **데모 가정(실제 확인 필요)**: AFR·FR 이 어느 조에 들어가는지 모름 → 데모는 반응조1~3 모두에 3종을 둠. 개도 태그(공기개도, 탄소원개도, CaOH2개도)도 공정 연관 규칙 시연용으로 넣은 것이라 실제 태그가 있는지 확인할 것. 농도 단위(mg/L)도 가정.
 - 사용자가 "공정이 훨씬 더 많다"고 했으므로 **구조는 반드시 설정(config) 기반**이어야 함 (`core.py`의 `PROCESSES`, `tanks_of()`, `STAGE_SPEC`).
 - **데이터**: 서버에서 **5분 평균값이 5분마다 누적**됨. 실시간 갱신 필요.
 
@@ -50,11 +52,11 @@
 
 | 파일 | 역할 |
 |---|---|
-| `app.py` | 진입점. 상단 내비(탭), 헤더 바, 조회 구간 슬라이더, 전역 CSS(다크 관제 테마) |
+| `app.py` | 진입점. 상단 내비(탭), 헤더 바, 조회 구간 슬라이더, 전역 CSS(밝은 현장 모니터 테마) |
 | `core.py` | **설비 구조, 규격, 데이터 생성/로딩, 이상 감지, 사고 묶기.** 데이터 교체는 여기서만 |
 | `charts.py` | Plotly 센서 차트 (규격선, 근접/이탈 영역, 이상 구간 음영, 동료 범위) |
 | `views.py` | 화면 4개 |
-| `.streamlit/config.toml` | 다크 테마 + 사용 통계 전송 끄기. **폴더째 유지** |
+| `.streamlit/config.toml` | 밝은 테마 + 사용 통계 전송 끄기. **폴더째 유지** |
 | `requirements.txt` | streamlit, plotly, pandas, numpy |
 | `CLAUDE.md` | 이 폴더에서 Claude를 시작하면 자동으로 이 문서를 읽게 하는 파일 + 작업 규칙 |
 | `HANDOFF.md` | 이 문서 |
@@ -75,7 +77,7 @@
 pip install -r requirements.txt     # 사내망이면 사내 PyPI/휠 사용
 streamlit run app.py
 ```
-탭 4개(종합 현황 / 공정 상세 / 한눈에 비교 / 경고 센터)가 에러 없이 떠야 함.
+탭 4개(전체 현황 / 공정 상세 / 한눈에 비교 / 경고 센터)가 에러 없이 떠야 함.
 
 ### 4-2. 데이터 소스 교체 — `core.get_plant()`
 - 함수 안의 `# ── 데모 데이터 생성 ... ──` 블록(난수 생성 + `ANOMALIES` 주입)만 **서버 조회로 교체**. 그 아래 감지 로직과 화면은 그대로 둠.
@@ -108,6 +110,9 @@ streamlit run app.py
 | **HOLD** | 같은 값이 1시간(12샘플) 이상 연속 (센서 고착/통신 정지 의심) | `HOLD_N=12` |
 | **STD σ 초과** | 1시간 이동표준편차 > 항목별 `std_limit` | `STD_N=12` |
 | **PEER 동료 대비 이탈 (조기경보)** | 아래 참고 | `PEER_ALPHA=0.2, PEER_K=5.0, PEER_PERSIST=6` |
+| **VALVE 개도-투입 불일치** | 앞 7일로 계열·조마다 `투입 = a + b·개도` 를 맞추고, 잔차의 EWMA 가 ±5σ(MAD) 를 30분 넘게 벗어남. 개도·투입 센서 둘 다 표시. 막힘·펌프 정지(개도↑ 투입 그대로) / 누설(개도↓ 투입 그대로) | `VALVE_PAIRS`, `VALVE_K=5.0` |
+| **AIR DO↓ 공기개도↑** | 2시간 기울기가 평소(앞 7일) 대비 DO 는 −2.5σ 아래, 공기개도는 +2.5σ 위로 30분 동시. 하락이 멈춰도 DO 가 평소보다 낮고 개도가 높은 동안은 유지. 산기관 막힘·부하 급증 | `AIR_PAIRS`, `AIR_N=24, AIR_K=2.5` |
+| **RATIO 고분자 부족** | 같은 계열 약품(CaOH2·AFR·FR, 각자 평소 대비 배율의 평균) 대비 Polymer 비율(로그)이 평소(앞 7일)보다 5σ 낮게 30분. 반응조→응집조 10분 지연 반영. Polymer 센서에 표시 | `RATIO_RULES`, `RATIO_K=5.0, RATIO_LAG=2` |
 
 ### PEER (가장 중요 — 조기감지의 핵심)
 같은 **건물·공정·조 종류·항목**의 센서들(예: 한 공정의 폭기조 20개의 DO)은 서로 비슷하게 움직여야 함. 한 센서가 **동료 중앙값에서 벌어지면** 규격 안이어도 이상으로 본다.
@@ -118,6 +123,13 @@ streamlit run app.py
 
 튜닝 이력(데모, 센서 648개 기준): 오프셋 미제거 + 앞2일 표준편차 + 4σ → 하루 10건 이상 오탐 → 오프셋 제거 + MAD + 5σ → **하루 1건 수준**. 민감도를 올리고 싶으면 `PEER_K`를 낮추되 오탐을 반드시 같이 확인할 것.
 
+### 공정 연관 규칙 (2026-11-04 사용자 요청으로 추가)
+- 규칙은 코드가 아니라 **설정 표**(`VALVE_PAIRS`, `AIR_PAIRS`, `RATIO_RULES`)로 정의. (조 종류, 항목) 짝만 적으면 **같은 동·공정·계열·조 안의 태그끼리 자동으로 짝지어져** 전 계열에 적용됨. 센서마다 하나씩 넣지 않음.
+- 평소 관계는 **앞 7일**(`BASE7_N`)로 학습 → 데모 기간을 8일로 늘린 이유.
+- 순위(rank): 연관 규칙 3종은 원인을 더 구체적으로 짚으므로 **PEER 보다 앞**(칸 색·정렬에서 우선). SPEC > NEAR > HOLD > STD > VALVE > AIR > RATIO > PEER.
+- 1·2단계 경고(고분자 부족만 = 주의, + 침전조 SS·F 상승 = 경고)는 제안만 했고 아직 묶지 않음. 지금은 두 사고가 따로 뜸.
+- 사용자와 논의한 후속 후보(미구현): 개도 100%/0% 포화, 헌팅(5분 평균이라 빠른 헌팅은 안 보임 — 표준편차로 대체 가능), 설정값-측정값 차이, 약품 탱크 레벨, 데이터에서 관계를 찾아 제안하고 체크만 받는 방식, 7일 기준 표준편차·2시간 Hold·기울기(상한 도달 예상 시간).
+
 ### 사고(incident) 묶기
 같은 **(건물, 공정, 계열, 조 종류)** 안의 경고는 **사고 1건**으로 묶는다. 예) 한 계열 폭기조 3개가 동시에 DO 저하 → 알람 3건이 아니라 사고 1건. (알람 피로 방지) — `core.incidents()`
 
@@ -125,17 +137,19 @@ streamlit run app.py
 
 사용자가 직접 불만을 말해서 바뀐 부분이 많음. **되돌리지 말 것.**
 
-1. **종합 현황** — 센서 전체 요약
-   - KPI(정상/전체, 종류별 개수), **"지금 확인할 곳"**(진행 중 사고 순위, 줄을 누르면 그래프가 펼쳐짐, "모두 펼치기" 토글), **공정 카드 12개**(동3×공정4, 계열 A~D 칩 색 + "이상 센서 n/전체" + 조기경보 수, "상세 ›" 버튼으로 공정 상세로 이동)
-   - ❌ *히트맵은 사용자가 "뭘 봐야 하는지 모르겠다"고 해서 제거함.* 색만 있고 값·규격·여유가 안 보였기 때문. 센서 650개에서 계층 요약(카드)으로 대체.
+1. **전체 현황** (2026-11-04 사용자 요청으로 다시 만듦 — "공정 운전 데이터를 한눈에, 이상값은 눈에 확 띄게, 현장 모니터처럼 밝게")
+   - 위: KPI 타일 6개(정상/전체 + 경고 종류별 개수, 걸린 종류는 타일 전체가 경고 색, 스펙 이탈은 깜빡임) → **진행 중 경고 띠**(사고 1건 = 색 칩 1개)
+   - 가운데(핵심): 공정별 **운전 보드**. 행 = 동·계열(3×4), 열 = 공정 흐름 순서의 조·항목, 칸 = **현재값 숫자**. 이상 센서 칸은 경고 색으로 칠하고, 스펙 이탈은 깜빡이며, 조회 구간 안에서 해소된 칸은 회색. ▲▼ = 1시간 새 규격폭의 10%(`views.ARROW_RATIO`)를 넘게 변함. 마우스를 올리면 규격·상태·1시간 변화. 유기는 한 줄 전체, 나머지 공정 3개는 나란히. 보드 머리의 "1동 ›" 등 버튼으로 공정 상세로 이동
+   - 아래: "경고 그래프"(진행 중 사고 expander, 모두 펼치기 토글) — 예전 "지금 확인할 곳"을 아래로 옮긴 것
+   - ❌ *예전 히트맵은 사용자가 "뭘 봐야 하는지 모르겠다"고 해서 제거함.* 색만 있고 값·규격·여유가 안 보였기 때문. 운전 보드는 **칸마다 숫자를 그대로 보여 주고**, 정상 칸은 흰색이라 경고 칸만 튀도록 해서 그 문제를 피함. 숫자를 빼고 색만 남기는 쪽으로 되돌리지 말 것.
 2. **공정 상세** — 계열 4개를 **공정 흐름 순서의 조 박스**로 나열(박스 = 버튼, 상태 아이콘/현재값). **이상 있는 조는 자동 펼침**, 박스를 누르면 해당 계열 바로 아래에 센서 그래프 펼침/접힘. "이상 조 모두 펼치기/모두 접기" 버튼.
    - 처음엔 라디오로 조를 골라야 했는데 "클릭하기 힘들다"고 해서 박스 직접 클릭 + 자동 펼침으로 바꿈.
 3. **한눈에 비교** — 항목 하나를 고르면 **계열 4 × 조 N개를 서브플롯 격자로 한 화면에** 보여줌(클릭 없이). 같은 열은 y축을 맞춰 혼자 튀는 센서가 눈에 띔. 선 색 = 현재 상태. 기본 항목은 그래프가 가장 많은 항목.
    - 센서가 많아서 "하나씩 클릭"이 불가능하다는 요구에서 나온 핵심 페이지.
 4. **경고 센터** — 사고 단위 카드를 **쭉 나열하고 스크롤**(표에서 행을 클릭해야 그래프가 나오던 방식은 사용자가 싫어해서 변경). 카드 안에 센서 그래프(최대 3개). 유형/건물/공정/진행 중 필터, "더 보기".
 5. **차트(`charts.py`)**: 추이선 + USL/LSL 점선 + 근접(주황)/이탈(빨강) 배경 + 이상 구간 세로 음영(Hold 파랑, σ 보라, 동료 이탈 분홍) + **동료 범위(회색 띠)와 중앙값(점선)**. 동료 범위가 있어야 "어디서 벌어졌는지" 보임.
-6. **디자인**: 다크 관제실 스타일(진한 남색, 시안 포인트, 숫자는 Orbitron 폰트), 사이드바 없음, 상단 탭 + 헤더 바(진행 중 사고 건수 표시). 사용자가 *"AI가 만들면 다 왼쪽 회색 사이드바에 똑같다"* 고 불평해서 의도적으로 일반 Streamlit 기본 모양을 피함. 이 방향 유지.
-7. 색상 의미 고정: 빨강 스펙 이탈 / 주황 근접 / 파랑 Hold / 보라 σ 초과 / 분홍 동료 이탈 / 초록 정상 / 회색 해소.
+6. **디자인**: **밝은 현장 모니터 스타일**(2026-11-04 사용자 요청으로 다크 관제 테마에서 바꿈. 연회색 바탕, 흰 카드, 청록 포인트 `#0e7490`, 숫자는 Orbitron 폰트, 와이드 모니터용 최대 폭 1920px). 사이드바 없음, 상단 탭 + 헤더 바(진행 중 사고 건수 표시). 사용자가 *"AI가 만들면 다 왼쪽 회색 사이드바에 똑같다"* 고 불평해서 의도적으로 일반 Streamlit 기본 모양을 피함. 이 방향 유지. 테마는 `.streamlit/config.toml`, 화면 CSS는 `app.py`의 `CSS`, 차트는 `charts.style()`.
+7. 색상 의미 고정: 빨강 스펙 이탈 / 주황 근접 / 파랑 Hold / 보라 σ 초과 / 분홍 동료 이탈 / 갈색 개도-투입 불일치 / 하늘색 DO↓ 공기개도↑ / 남색 고분자 부족 / 초록 정상 / 회색 해소. (색은 `core.KIND` 하나에서만 정의 — 보드 칸·차트 음영이 여기서 가져감)
 
 ## 7. 사내망 환경 주의
 
@@ -147,9 +161,12 @@ streamlit run app.py
 ## 8. 검증 방법
 
 - **오탐 확인**: 감지 로직을 건드릴 때마다, 평소(이상 없는) 구간에서 경고가 몇 개 걸리는지 먼저 세어 볼 것. (데모에서는 `get_plant.__wrapped__()`로 직접 호출해 `core.events()`로 확인했음.)
-- 데모 모드에서 `ANOMALIES`에 심은 이상 12건이 의도한 유형으로 잡히는지 확인:
-  스펙 이탈(2동 유기A 폭기조1·2·3 DO 동시 저하→사고 1건으로 묶임, 2동 무기1 B 반응조2 pH), Hold 3건, σ 1건, **PEER 전용 3건(규격 안이라 임계값으로는 안 잡힘)**, 과거 해소 1건.
-- 화면 확인: 4개 탭 모두 예외 없이 렌더링, "상세 ›" 버튼 → 공정 상세 이동, 조 박스 클릭 → 그래프 펼침/접힘.
+- 데모 모드에서 `ANOMALIES`에 심은 이상이 의도한 유형으로 잡히는지 확인:
+  스펙 이탈(2동 유기A 폭기조1·2·3 DO 동시 저하→사고 1건으로 묶임, 2동 무기1 B 반응조2 pH), Hold 3건, σ 1건, **PEER 전용 2건(1동 유기C 폭기조2 DO, 3동 무기2 A 반응조1 AFR — 규격 안이라 임계값으로는 안 잡힘)**, 과거 해소 1건,
+  **VALVE**(1동 무기1 A 반응조2: CaOH2개도↑ 투입↓ = 소석회 막힘. 3동 유기A 후탈조 외부탄소원 감소도 개도 변화 없이 줄어서 VALVE 로도 잡힘),
+  **AIR**(3동 유기B 폭기조3 DO↓ 공기개도↑), **RATIO**(2동 무기2 D: AFR·FR 50%↑, Polymer 그대로 → 고분자 부족, 뒤이어 침전조 SS↑).
+- 2026-11-04 측정(심지 않은 센서 기준): 앞 7일 하루 평균 NEAR 1.1 · PEER 0.3 · 나머지 0. 최근 1일 VALVE·AIR·PEER 각 1건(VALVE·AIR 는 짝 센서 쪽이 같이 표시된 것. AIR 1건은 2동 유기A 폭기조3 DO 급락 때 공기개도가 우연히 같이 올라 걸린 것).
+- 화면 확인: 4개 탭 모두 예외 없이 렌더링, 전체 현황 보드의 "1동 ›" 등 버튼 → 공정 상세 이동, 이상 센서 수 = 보드의 경고 색 칸 수, 조 박스 클릭 → 그래프 펼침/접힘.
 
 ## 9. 작업 원칙 (사내 Claude에게)
 
@@ -173,13 +190,15 @@ streamlit run app.py
 
 ## 11. 알려진 한계 / 미구현
 
-- PEER 오탐: 데모에서 센서 648개 기준 **하루 1건 정도** 남아 있음. 실데이터에서는 더 달라질 수 있으므로 반드시 실측 후 `PEER_K`, `PEER_PERSIST` 재조정.
+- PEER 오탐: 데모에서 **하루 1건 이하** 남아 있음. 실데이터에서는 더 달라질 수 있으므로 반드시 실측 후 `PEER_K`, `PEER_PERSIST` 재조정.
 - 동료 그룹이 작은 항목(전탈조/후탈조처럼 같은 공정 안에 4개뿐)은 중앙값이 불안정함. 한 센서가 크게 벗어나면 중앙값도 같이 흔들림.
 - PEER 기준선이 **고정 기간(앞 2일)** 기반. 롤링 갱신 미구현.
 - 데이터를 **전부 메모리에 올리는 구조**. 센서가 수천 개 이상이 되면 DB/배치로 감지를 옮겨야 함.
 - 한눈에 비교는 **건물 1개 × 공정 1개** 단위. 전 건물 동시 비교, **자동 순회 모드**(관제실 모니터용)는 제안만 했고 미구현.
 - Google Fonts(Orbitron) 외부 의존 1건 (막혀도 기본 폰트로 동작).
-- `STAGE_SPEC`의 규격, `ANOMALIES`는 **데모용 가짜 값**.
+- `STAGE_SPEC`의 규격, `ANOMALIES`는 **데모용 가짜 값**. 새 개도 태그·약품 농도 단위·AFR/FR 투입 위치도 데모 가정.
+- 연관 규칙의 평소 관계(앞 7일)는 **고정 기간**. 실데이터에서는 PEER 와 같이 롤링 갱신 필요. 이상이 섞인 기간으로 학습하면 그 관계가 '정상'이 되므로 경고 구간은 빼고 학습할 것.
+- 데모의 관계는 단순(투입 = 개도 비례, 고분자 = 약품 10분 지연 비례). 실제 공정은 지연·비선형이 더 클 수 있어 `VALVE_K`, `RATIO_K`, `RATIO_LAG`, `AIR_K` 를 실측으로 재조정해야 함.
 
 ---
 
@@ -218,12 +237,12 @@ numpy>=1.26
 
 ````toml
 [theme]
-base = "dark"
-primaryColor = "#22d3ee"
-backgroundColor = "#0b0f19"
-secondaryBackgroundColor = "#121a2b"
-textColor = "#e2e8f0"
-borderColor = "#1e293b"
+base = "light"
+primaryColor = "#0e7490"
+backgroundColor = "#eef2f6"
+secondaryBackgroundColor = "#ffffff"
+textColor = "#0f172a"
+borderColor = "#cbd5e1"
 
 [client]
 toolbarMode = "minimal"
@@ -235,7 +254,7 @@ gatherUsageStats = false
 ## 파일: `app.py`
 
 ````python
-"""폐수처리 공정 품질 현황 대시보드 (데모 데이터, 센서 약 650개).
+"""폐수처리 공정 품질 현황 대시보드 (데모 데이터, 센서 약 960개).
 
 실행:  streamlit run app.py
 """
@@ -244,70 +263,98 @@ import streamlit as st
 st.set_page_config(page_title="WWTP 품질 관제", page_icon="💧", layout="wide", initial_sidebar_state="collapsed")
 
 import views  # noqa: E402  (set_page_config 이후 import)
-from core import get_plant, incidents  # noqa: E402
+from core import KIND, get_plant, incidents  # noqa: E402
 from views import RANGES  # noqa: E402
 
 CSS = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&display=swap');
 
-/* 사이드바 제거 → 상단 내비 + 헤더 바 */
+/* 사이드바 제거 → 상단 내비 + 헤더 바. 현장 모니터(와이드)에 맞춰 폭을 넓게 */
 [data-testid="stSidebar"], [data-testid="stSidebarCollapsedControl"] { display: none; }
-.block-container { padding-top: 4.5rem; max-width: 1600px; }
+.block-container { padding-top: 4.5rem; max-width: 1920px; }
 
 /* 헤더 바 */
 .wwtp-bar { display:flex; align-items:center; gap:14px; padding:10px 16px; margin-bottom:6px;
-  background: linear-gradient(90deg, rgba(34,211,238,.10), rgba(18,26,43,.0) 70%);
-  border:1px solid rgba(34,211,238,.25); border-radius:12px; }
+  background:#ffffff; border:1px solid #cbd5e1; border-left:6px solid #0e7490; border-radius:10px;
+  box-shadow:0 1px 3px rgba(15,23,42,.08); }
 .wwtp-logo { width:38px; height:38px; border-radius:9px; display:flex; align-items:center; justify-content:center;
-  background: rgba(34,211,238,.12); border:1px solid rgba(34,211,238,.4); font-size:20px; }
-.wwtp-title { font-weight:700; letter-spacing:.04em; color:#f1f5f9; font-size:15px; line-height:1.2; }
+  background:#ecfeff; border:1px solid #67e8f9; font-size:20px; }
+.wwtp-title { font-weight:800; letter-spacing:.04em; color:#0f172a; font-size:15px; line-height:1.2; }
 .wwtp-sub { color:#64748b; font-size:11px; }
 .wwtp-live { font-family:'Orbitron',sans-serif; font-size:10px; padding:2px 8px; border-radius:5px;
-  color:#22d3ee; background:rgba(34,211,238,.12); border:1px solid rgba(34,211,238,.4); margin-left:8px; }
-.wwtp-pill { margin-left:auto; padding:5px 12px; border-radius:8px; font-size:12px; font-weight:700; }
-.wwtp-pill.bad { color:#fca5a5; background:rgba(239,68,68,.15); border:1px solid rgba(239,68,68,.5);
-  animation: glow 1.6s infinite; }
-.wwtp-pill.ok { color:#86efac; background:rgba(34,197,94,.12); border:1px solid rgba(34,197,94,.4); }
-@keyframes glow { 0%,100% { box-shadow:0 0 10px rgba(239,68,68,.6);} 50% { box-shadow:0 0 1px rgba(239,68,68,.2);} }
+  color:#0e7490; background:#ecfeff; border:1px solid #67e8f9; margin-left:8px; }
+.wwtp-pill { margin-left:auto; padding:6px 14px; border-radius:8px; font-size:13px; font-weight:800; }
+.wwtp-pill.bad { color:#ffffff; background:#dc2626; border:1px solid #b91c1c; animation: glow 1.6s infinite; }
+.wwtp-pill.ok { color:#ffffff; background:#16a34a; border:1px solid #15803d; }
+@keyframes glow { 0%,100% { box-shadow:0 0 0 0 rgba(220,38,38,.55);} 50% { box-shadow:0 0 0 6px rgba(220,38,38,0);} }
 
 /* 카드(테두리 컨테이너) */
 div[data-testid="stVerticalBlockBorderWrapper"] {
-  background: rgba(18,26,43,.72); border:1px solid rgba(255,255,255,.07) !important; border-radius:12px;
+  background:#ffffff; border:1px solid #d5dde7 !important; border-radius:10px; box-shadow:0 1px 2px rgba(15,23,42,.05);
 }
-div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="stVerticalBlockBorderWrapper"] { background: transparent; }
+div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="stVerticalBlockBorderWrapper"] { box-shadow:none; }
 
 /* 숫자는 계기판 폰트 */
-[data-testid="stMetricValue"] { font-family:'Orbitron',sans-serif; color:#22d3ee; font-weight:700; }
-[data-testid="stMetricLabel"] { color:#94a3b8; }
+[data-testid="stMetricValue"] { font-family:'Orbitron',sans-serif; color:#0e7490; font-weight:700; }
+[data-testid="stMetricLabel"] { color:#475569; }
 h3 { letter-spacing:.02em; }
 
-/* 종합: 지금 확인할 곳 */
-.ilist { border:1px solid rgba(255,255,255,.07); border-radius:12px; background:rgba(18,26,43,.72); overflow:hidden; }
-.ir { display:grid; grid-template-columns:130px 190px 1fr 90px 70px; gap:10px; padding:9px 14px; font-size:13px;
-  border-bottom:1px solid rgba(255,255,255,.05); align-items:center; }
-.ir:last-child { border-bottom:none; }
-.ik { font-weight:700; } .it { color:#e2e8f0; } .iw { color:#94a3b8; } .ic, .id { color:#64748b; text-align:right; font-size:12px; }
+/* 전체 현황: KPI 타일 */
+.kp { display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr)); gap:10px; margin:4px 0 10px; }
+.kt { background:#ffffff; border:1px solid #d5dde7; border-left:8px solid #cbd5e1; border-radius:10px; padding:10px 14px; }
+.kt .kl { font-size:13px; color:#475569; font-weight:700; }
+.kt .kv { font-family:'Orbitron',sans-serif; font-size:30px; font-weight:700; color:#94a3b8; line-height:1.25; }
+.kt .kv small { font-size:15px; color:#64748b; }
+.kt.ok .kv { color:#16a34a; }
+.kt.hot { color:#ffffff; }
+.kt.hot .kl, .kt.hot .kv, .kt.hot .kv small { color:#ffffff; }
+.kt.pulse { animation: glow 1.6s infinite; }
 
-/* 종합: 공정 카드 */
-.bh { font-weight:700; color:#cbd5e1; letter-spacing:.05em; margin:14px 0 6px; font-size:13px; }
-.pt { display:flex; justify-content:space-between; font-size:14px; margin-bottom:8px; }
-.pt b { color:#f1f5f9; font-size:16px; }
-.pl { display:flex; gap:6px; margin-bottom:8px; }
-.ln { width:30px; text-align:center; padding:2px 0; border:1px solid; border-radius:6px; font-size:12px; font-weight:700; color:#f1f5f9; }
-.ps { color:#94a3b8; font-size:12px; margin-bottom:4px; } .ps b { color:#e2e8f0; }
+/* 전체 현황: 진행 중 경고 띠 */
+.tk { display:flex; flex-wrap:wrap; gap:8px; margin:2px 0 12px; }
+.tc { padding:7px 12px; border-radius:8px; color:#ffffff; font-size:14px; font-weight:700; }
+.tc span { font-weight:500; opacity:.92; }
+.tk-ok { padding:10px 14px; border-radius:8px; background:#16a34a; color:#fff; font-weight:800; font-size:15px; margin-bottom:12px; }
+
+/* 전체 현황: 운전 보드 */
+.bt { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 12px; font-size:14px; color:#475569; }
+.bt > * { white-space:nowrap; }
+.bt b { font-size:20px; color:#0f172a; }
+.bt .st { font-weight:800; }
+.bd-wrap { overflow-x:auto; }
+table.bd { border-collapse:collapse; width:100%; font-size:14px; }
+table.bd.nr { font-size:13px; }
+table.bd.nr td, table.bd.nr th { padding:4px 1px; }
+.bd th { background:#334155; color:#ffffff; font-weight:700; font-size:12px; padding:4px 2px; text-align:center;
+  border:1px solid #475569; white-space:nowrap; }
+.bd tr.h2 th { background:#e2e8f0; color:#1e293b; border-color:#cbd5e1; }
+.bd th small { display:block; font-weight:400; color:#64748b; font-size:10px; }
+.bd td { background:#ffffff; color:#0f172a; border:1px solid #e2e8f0; text-align:center; padding:5px 2px;
+  font-weight:600; font-variant-numeric:tabular-nums; white-space:nowrap; cursor:default; }
+.bd td.rb { background:#f1f5f9; color:#0f172a; font-weight:800; font-size:13px; }
+.bd td.rl { background:#f8fafc; color:#334155; font-weight:700; font-size:13px; }
+.bd tr.bs td { border-top:3px solid #64748b; }
+.bd td.k { color:#ffffff; font-weight:800; }
+.bd td.res { background:#e2e8f0; color:#64748b; }
+.bd td.k-SPEC { animation: blink 1.1s steps(2, start) infinite; }
+.bd .ar { font-size:10px; margin-left:2px; opacity:.75; }
+@keyframes blink { 50% { background:#7f1d1d; } }
+.lg { display:flex; flex-wrap:wrap; gap:6px 14px; font-size:12px; color:#475569; margin:2px 0 8px; align-items:center; }
+.lg i { display:inline-block; width:14px; height:14px; border-radius:3px; vertical-align:-2px; margin-right:4px; border:1px solid #cbd5e1; }
 
 /* 공정 상세: 흐름도(조 = 버튼) */
-.lh { display:flex; gap:14px; align-items:baseline; margin:14px 0 6px; font-size:13px; } .lh b { color:#e2e8f0; font-size:14px; }
-[class*="st-key-nd-"] button { height:auto; min-height:0; padding:7px 10px; justify-content:flex-start;
-  background:rgba(18,26,43,.72); }
-[class*="st-key-nd-"] button:hover { background:rgba(34,211,238,.08); }
+.lh { display:flex; gap:14px; align-items:baseline; margin:14px 0 6px; font-size:13px; } .lh b { color:#0f172a; font-size:14px; }
+[class*="st-key-nd-"] button { height:auto; min-height:0; padding:7px 10px; justify-content:flex-start; background:#ffffff; }
+[class*="st-key-nd-"] button:hover { background:#ecfeff; }
 [class*="st-key-nd-"] button p { font-size:12px; line-height:1.55; text-align:left; margin:0; }
 </style>
 """
+# 경고 종류별 칸 색 (색 의미는 core.KIND 하나로 고정)
+CSS += "<style>" + "".join(f".bd td.k-{k}, .lg i.k-{k} {{ background:{v['color']}; }}" for k, v in KIND.items()) + "</style>"
 
 pages = {
-    "overview": st.Page(views.overview, title="종합 현황", icon="🏭", default=True),
+    "overview": st.Page(views.overview, title="전체 현황", icon="🏭", default=True),
     "process": st.Page(views.process, title="공정 상세", icon="🔎", url_path="process"),
     "compare": st.Page(views.compare, title="한눈에 비교", icon="📊", url_path="compare"),
     "alerts": st.Page(views.alerts, title="경고 센터", icon="🚨", url_path="alerts"),
@@ -338,7 +385,10 @@ with ctl:
         st.markdown(
             "- **스펙 이탈** LSL/USL 벗어남\n- **근접** 규격폭 10% 이내\n"
             "- **Hold** 1시간(12샘플) 연속 같은 값\n- **σ 초과** 1시간 이동 표준편차 > 항목별 기준\n"
-            "- **동료 대비 이탈** 같은 공정·같은 항목 센서들의 중앙값과 5σ 이상 벌어져 30분 지속 (규격 안이어도 감지)"
+            "- **동료 대비 이탈** 같은 공정·같은 항목 센서들의 중앙값과 5σ 이상 벌어져 30분 지속 (규격 안이어도 감지)\n"
+            "- **개도-투입 불일치** 개도에 비해 투입량·농도가 평소(앞 7일) 관계에서 5σ 이상 벗어나 30분 지속 (막힘·펌프 정지·누설)\n"
+            "- **DO↓ 공기개도↑** 2시간 동안 DO 는 떨어지고 공기 밸브는 열리는 게 평소보다 뚜렷하게 30분 지속 (산기관 막힘·부하 급증)\n"
+            "- **고분자 부족** 같은 계열 약품(CaOH2·AFR·FR) 투입 대비 Polymer 비율이 평소보다 5σ 낮게 30분 지속"
         )
         if st.button("데모 데이터 새로 만들기", width="stretch"):
             st.cache_resource.clear()
@@ -350,7 +400,7 @@ nav.run()
 ## 파일: `core.py`
 
 ````python
-"""공정 구조 / 규격 / 데모 데이터 / 이상 감지 (센서 약 650개, 5분 간격).
+"""공정 구조 / 규격 / 데모 데이터 / 이상 감지 (센서 약 960개, 5분 간격).
 
 실제 적용 시:
   - STAGE_SPEC 의 규격(LSL/USL, 표준편차 기준)만 실제 값으로 수정
@@ -374,15 +424,17 @@ def tanks_of(proc: str) -> list[tuple[str, str, list[str]]]:
     """공정 흐름 순서대로 (조 이름, 규격 종류, 센서 항목들)."""
     if proc == "유기":
         return (
-            [("전탈조", "전탈조", ["NO3-N", "외부탄소원"])]
-            + [(f"폭기조{i}", "폭기조", ["DO", "pH"]) for i in range(1, 6)]
-            + [("후탈조", "후탈조", ["NO3-N", "외부탄소원"]),
-               ("재폭기조", "재폭기조", ["DO", "pH"]),
+            [("전탈조", "전탈조", ["NO3-N", "외부탄소원", "탄소원개도"])]
+            + [(f"폭기조{i}", "폭기조", ["DO", "pH", "공기개도"]) for i in range(1, 6)]
+            + [("후탈조", "후탈조", ["NO3-N", "외부탄소원", "탄소원개도"]),
+               ("재폭기조", "재폭기조", ["DO", "pH", "공기개도"]),
                ("침전조", "유기침전조", ["SS", "torque"])]
         )
+    # 약품 농도 태그: CaOH2 = CaoH2_Concetraion, AFR = AFR_Concentration, FR = FR_Concentraion, Polymer = Polymer_Concentration
+    # (투입 위치는 데모 가정: 반응조마다 3종 모두. 실제 위치가 다르면 여기만 고치면 됨)
     return (
-        [(f"반응조{i}", "반응조", ["pH", "소석회", "응결제"]) for i in range(1, 4)]
-        + [("응집조", "응집조", ["고분자"]), ("침전조", "무기침전조", ["F", "SS"])]
+        [(f"반응조{i}", "반응조", ["pH", "CaOH2", "AFR", "FR", "CaOH2개도"]) for i in range(1, 4)]
+        + [("응집조", "응집조", ["Polymer"]), ("침전조", "무기침전조", ["F", "SS"])]
     )
 
 
@@ -400,9 +452,16 @@ STAGE_SPEC = {
     ("유기침전조", "SS"):    dict(unit="mg/L", lsl=NAN, usl=30.0, base=10.0, sigma=1.6, std_limit=4.0, dec=1),
     ("유기침전조", "torque"): dict(unit="%", lsl=20.0, usl=80.0, base=48.0, sigma=3.5, std_limit=8.0, dec=1),
     ("반응조", "pH"):       dict(unit="pH", lsl=9.0, usl=11.5, base=10.2, sigma=0.18, std_limit=0.5, dec=2),
-    ("반응조", "소석회"):    dict(unit="L/h", lsl=60.0, usl=260.0, base=150.0, sigma=13.0, std_limit=30.0, dec=1),
-    ("반응조", "응결제"):    dict(unit="L/h", lsl=10.0, usl=60.0, base=32.0, sigma=3.0, std_limit=7.0, dec=1),
-    ("응집조", "고분자"):    dict(unit="L/h", lsl=5.0, usl=30.0, base=15.0, sigma=1.6, std_limit=3.5, dec=1),
+    ("반응조", "CaOH2"):    dict(unit="mg/L", lsl=150.0, usl=700.0, base=400.0, sigma=30.0, std_limit=70.0, dec=1),
+    ("반응조", "AFR"):      dict(unit="mg/L", lsl=20.0, usl=120.0, base=60.0, sigma=5.0, std_limit=12.0, dec=1),
+    ("반응조", "FR"):       dict(unit="mg/L", lsl=5.0, usl=50.0, base=25.0, sigma=2.5, std_limit=6.0, dec=1),
+    ("응집조", "Polymer"):  dict(unit="mg/L", lsl=1.0, usl=6.0, base=3.0, sigma=0.2, std_limit=0.5, dec=2),
+    # 개도(%) — 하한/상한 근처면 근접 경고 = 밸브가 끝까지 붙은 상태(제어 여유 없음)
+    ("폭기조", "공기개도"):   dict(unit="%", lsl=5.0, usl=95.0, base=50.0, sigma=5.0, std_limit=10.0, dec=1),
+    ("재폭기조", "공기개도"): dict(unit="%", lsl=5.0, usl=95.0, base=40.0, sigma=5.0, std_limit=10.0, dec=1),
+    ("전탈조", "탄소원개도"): dict(unit="%", lsl=5.0, usl=95.0, base=45.0, sigma=4.0, std_limit=8.0, dec=1),
+    ("후탈조", "탄소원개도"): dict(unit="%", lsl=5.0, usl=95.0, base=35.0, sigma=4.0, std_limit=8.0, dec=1),
+    ("반응조", "CaOH2개도"):  dict(unit="%", lsl=5.0, usl=95.0, base=50.0, sigma=4.0, std_limit=8.0, dec=1),
     ("무기침전조", "F"):     dict(unit="ppm", lsl=NAN, usl=15.0, base=6.0, sigma=1.0, std_limit=2.5, dec=2),
     ("무기침전조", "SS"):    dict(unit="mg/L", lsl=NAN, usl=30.0, base=9.0, sigma=1.5, std_limit=4.0, dec=1),
 }
@@ -412,20 +471,39 @@ STAGE_SPEC = {
 # ─────────────────────────────────────────────────────────────
 STEP_MIN = 5
 PER_DAY = 24 * 60 // STEP_MIN        # 288
-N_PTS = 3 * PER_DAY                   # 데모: 3일치
+N_PTS = 8 * PER_DAY                   # 데모: 8일치 (7일 기준 + 최근 1일)
 BASE_N = 2 * PER_DAY                  # 앞 2일 = 평소 기준(동료 편차 기준 산정용)
+BASE7_N = 7 * PER_DAY                 # 앞 7일 = 평소 관계 기준(개도-투입, 투입 비율)
 
 NEAR_RATIO = 0.10                     # 규격폭 10% 이내 → 근접
 HOLD_N = 12                           # 12개(=1시간) 연속 같은 값 → Hold
 STD_N = 12                            # 이동 표준편차 윈도우 = 1시간
 PEER_ALPHA, PEER_K, PEER_PERSIST = 0.2, 5.0, 6   # 동료 대비 편차: EWMA, 5σ, 30분 지속
 
+# 공정 연관 규칙 — (조 종류, 항목) 짝을 설정으로. 같은 동·공정·계열·조 안의 태그끼리 자동으로 짝지어짐
+VALVE_PAIRS = [                       # (조 종류, 개도 항목, 투입 항목): 개도에 비해 투입이 평소와 다름
+    ("전탈조", "탄소원개도", "외부탄소원"),
+    ("후탈조", "탄소원개도", "외부탄소원"),
+    ("반응조", "CaOH2개도", "CaOH2"),
+]
+VALVE_K = 5.0                         # 평소 관계(7일 회귀)에서 벗어난 정도, EWMA 기준 5σ
+AIR_PAIRS = [("폭기조", "DO", "공기개도"), ("재폭기조", "DO", "공기개도")]   # (조 종류, DO, 공기 개도)
+AIR_N, AIR_K = 24, 2.5                # 2시간 기울기: DO 는 평소보다 2.5σ 넘게 하락, 개도는 2.5σ 넘게 상승 (1시간은 흔들림이 커서 서서히 오는 막힘을 놓침)
+RATIO_RULES = [                       # 약품 투입이 늘었는데 고분자가 따라가지 않음 (같은 계열 안)
+    dict(dose_stage="반응조", dose=["CaOH2", "AFR", "FR"], target_stage="응집조", target="Polymer"),
+]
+RATIO_K, RATIO_LAG = 5.0, 2           # 고분자 ÷ 약품 비율이 평소보다 5σ 낮음, 반응조→응집조 10분 지연
+
 KIND = {
     "SPEC": dict(label="스펙 이탈", color="#ef4444", icon="🔴", rank=0),
     "NEAR": dict(label="상하한 근접", color="#f97316", icon="🟠", rank=1),
     "HOLD": dict(label="1시간 Hold", color="#3b82f6", icon="🔵", rank=2),
     "STD":  dict(label="표준편차 초과", color="#a855f7", icon="🟣", rank=3),
-    "PEER": dict(label="동료 대비 이탈(조기경보)", color="#ec4899", icon="🩷", rank=4),
+    # 공정 연관 규칙은 원인을 더 구체적으로 짚으므로 동료 대비 이탈보다 앞 순위(칸 색·정렬 우선)
+    "VALVE": dict(label="개도-투입 불일치", color="#92400e", icon="🟤", rank=4),
+    "AIR":  dict(label="DO↓ 공기개도↑", color="#0891b2", icon="💨", rank=5),
+    "RATIO": dict(label="고분자 부족(투입 비율)", color="#4f46e5", icon="⚗️", rank=6),
+    "PEER": dict(label="동료 대비 이탈(조기경보)", color="#ec4899", icon="🩷", rank=7),
 }
 NONE_RANK = 99
 
@@ -444,14 +522,25 @@ ANOMALIES = {
     ("2동", "무기1", "B계열", "반응조2", "pH"): ("ramp", 48, 1.5, 0),           # 상한 근접→이탈
     ("3동", "산폐수", "C계열", "침전조", "SS"): ("hold", 30, None, 0),          # 센서 고착
     ("1동", "유기", "D계열", "전탈조", "NO3-N"): ("hold", 18, None, 0),
-    ("3동", "무기2", "C계열", "응집조", "고분자"): ("hold", 24, None, 0),
+    ("3동", "무기2", "C계열", "응집조", "Polymer"): ("hold", 24, None, 0),
     ("2동", "유기", "B계열", "폭기조4", "pH"): ("noisy", 24, 0.45, 0),          # 변동성 증가
     # ↓ 규격 안이라 임계값으로는 안 잡히고, 동료와 비교해야 보이는 미세 변동
     ("1동", "유기", "C계열", "폭기조2", "DO"): ("ramp", 72, 0.7, 0),
-    ("3동", "무기2", "A계열", "반응조1", "소석회"): ("ramp", 90, 38.0, 0),
+    ("3동", "무기2", "A계열", "반응조1", "AFR"): ("ramp", 90, 15.0, 0),
     ("3동", "유기", "A계열", "후탈조", "외부탄소원"): ("ramp", 60, -7.0, 0),
     # 과거에 있었다가 해소된 이탈
     ("1동", "무기1", "D계열", "침전조", "F"): ("bump", 36, 9.8, 60),
+    # ↓ 공정 연관 규칙
+    # 소석회 배관 막힘: 개도는 계속 열리는데 투입 농도는 오히려 떨어짐 → 개도-투입 불일치
+    ("1동", "무기1", "A계열", "반응조2", "CaOH2개도"): ("ramp", 60, 30.0, 0),
+    ("1동", "무기1", "A계열", "반응조2", "CaOH2"): ("ramp", 60, -50.0, 0),
+    # 산기관 막힘: DO 는 떨어지고 공기 밸브는 계속 열림 → DO↓ 공기개도↑
+    ("3동", "유기", "B계열", "폭기조3", "DO"): ("ramp", 48, -1.5, 0),
+    ("3동", "유기", "B계열", "폭기조3", "공기개도"): ("ramp", 48, 30.0, 0),
+    # 약품(AFR·FR) 투입 50% 증가, 고분자는 그대로 → 고분자 부족, 뒤따라 침전조 SS 상승
+    **{("2동", "무기2", "D계열", f"반응조{i}", prm): ("ramp", 72, arg, 0)
+       for i in range(1, 4) for prm, arg in (("AFR", 30.0), ("FR", 12.5))},
+    ("2동", "무기2", "D계열", "침전조", "SS"): ("ramp", 30, 7.0, 0),
 }
 
 
@@ -540,6 +629,54 @@ def _apply(V, i, kind, n, arg, off, dec, rng):
         V[i, sl] += rng.uniform(-arg, arg, n)
 
 
+def _pairs(meta: pd.DataFrame, stage: str, pa: str, pb: str) -> tuple[np.ndarray, np.ndarray]:
+    """같은 동·공정·계열·조 안의 (항목 pa, 항목 pb) 센서 번호 짝."""
+    key = ["bldg", "proc", "line", "tank"]
+    a = meta[(meta.stage == stage) & (meta.param == pa)].reset_index()
+    b = meta[(meta.stage == stage) & (meta.param == pb)].reset_index()
+    m = a.merge(b, on=key, suffixes=("_a", "_b"))
+    return m["index_a"].to_numpy(), m["index_b"].to_numpy()
+
+
+def _ratio_groups(meta: pd.DataFrame, rule: dict) -> list[tuple[np.ndarray, int]]:
+    """계열마다 (약품 센서들, 고분자 센서) — 약품 조와 고분자 조가 둘 다 있는 계열만."""
+    out = []
+    dose = meta[(meta.stage == rule["dose_stage"]) & meta.param.isin(rule["dose"])]
+    tgt = meta[(meta.stage == rule["target_stage"]) & (meta.param == rule["target"])]
+    for (b, p, l), g in dose.groupby(["bldg", "proc", "line"], sort=False):
+        t = tgt.index[(tgt.bldg == b) & (tgt.proc == p) & (tgt.line == l)]
+        if len(t):
+            out.append((g.index.to_numpy(), int(t[0])))
+    return out
+
+
+def _ewm(x: np.ndarray) -> np.ndarray:
+    return pd.DataFrame(x.T).ewm(alpha=PEER_ALPHA, adjust=False).mean().to_numpy().T
+
+
+def _robust_z(x: np.ndarray, n: int) -> np.ndarray:
+    """앞 n 샘플(평소)의 중앙값·MAD 로 표준화."""
+    base = x[:, :n]
+    med = np.nanmedian(base, axis=1, keepdims=True)
+    sd = np.maximum(1.4826 * np.nanmedian(np.abs(base - med), axis=1, keepdims=True), 1e-9)
+    return (x - med) / sd
+
+
+def _slope(x: np.ndarray, n: int) -> np.ndarray:
+    """최근 n 샘플 직선 기울기(샘플당). 앞쪽 n-1 개는 0."""
+    w = np.arange(n) - (n - 1) / 2
+    w = w / (w ** 2).sum()
+    out = np.zeros_like(x)
+    out[:, n - 1:] = np.lib.stride_tricks.sliding_window_view(x, n, axis=1) @ w
+    return out
+
+
+def _lag(x: np.ndarray, k: int) -> np.ndarray:
+    out = np.roll(x, k, axis=-1)
+    out[..., :k] = x[..., :1]
+    return out
+
+
 @st.cache_resource(show_spinner="센서 데이터 생성 중…")
 def get_plant() -> Plant:
     rng = np.random.default_rng(11)
@@ -570,6 +707,14 @@ def get_plant() -> Plant:
         idio[:, t] = phi * idio[:, t - 1] + k * rng.normal(0, 0.3 * sig)
     mu = meta["base"].to_numpy() + rng.normal(0, 0.15 * sig)
     V = mu[:, None] + common[G] + idio
+    # 평소 관계: 투입량은 개도를 따라가고, 고분자는 같은 계열 약품 투입을 10분 늦게 따라감
+    for stage, pv, pf in VALVE_PAIRS:
+        iv, jf = _pairs(meta, stage, pv, pf)
+        V[jf] = mu[jf, None] * V[iv] / mu[iv, None] + 0.5 * idio[jf]
+    for rule in RATIO_RULES:
+        for ids, t in _ratio_groups(meta, rule):
+            C = (V[ids] / mu[ids, None]).mean(axis=0)
+            V[t] = mu[t] * _lag(C, RATIO_LAG) + 0.5 * idio[t]
 
     idx = pd.date_range(end=pd.Timestamp.now().floor(f"{STEP_MIN}min"), periods=T, freq=f"{STEP_MIN}min")
     dec = meta["dec"].to_numpy()
@@ -611,7 +756,47 @@ def get_plant() -> Plant:
     ew = pd.DataFrame(d.T).ewm(alpha=PEER_ALPHA, adjust=False).mean().to_numpy().T
     peer = _persist_backfill(np.abs(ew) > PEER_K * sd_d[:, None], PEER_PERSIST)
 
-    F = {"SPEC": spec, "NEAR": near, "HOLD": hold, "STD": stdx, "PEER": peer}
+    # 개도-투입 불일치: 앞 7일로 '투입 = a + b·개도' 를 계열·조마다 맞추고, 그 관계에서 벗어나면 (개도·투입 둘 다 표시)
+    valve = np.zeros_like(spec)
+    for stage, pv, pf in VALVE_PAIRS:
+        iv, jf = _pairs(meta, stage, pv, pf)
+        X, Y = V[iv], V[jf]
+        xb, yb = X[:, :BASE7_N], Y[:, :BASE7_N]
+        b = ((xb - xb.mean(1, keepdims=True)) * (yb - yb.mean(1, keepdims=True))).sum(1) / \
+            np.maximum(((xb - xb.mean(1, keepdims=True)) ** 2).sum(1), 1e-9)
+        a = yb.mean(1) - b * xb.mean(1)
+        r = _robust_z(Y - (a[:, None] + b[:, None] * X), BASE7_N)
+        f = _persist_backfill(np.abs(_ewm(r)) > VALVE_K, PEER_PERSIST)
+        valve[iv] |= f
+        valve[jf] |= f
+
+    # DO↓ 공기개도↑: 2시간 기울기가 평소(앞 7일) 대비 DO 는 크게 하락, 개도는 크게 상승을 30분 이상 동시에
+    air = np.zeros_like(spec)
+    for stage, pdo, pv in AIR_PAIRS:
+        ido, iv = _pairs(meta, stage, pdo, pv)
+        zdo = _robust_z(_slope(V[ido], AIR_N), BASE7_N)
+        zv = _robust_z(_slope(V[iv], AIR_N), BASE7_N)
+        f = _persist_backfill((zdo < -AIR_K) & (zv > AIR_K), PEER_PERSIST)
+        # 하락이 멈춰도 DO 가 평소보다 낮고 개도가 평소보다 열린 상태면 경고 유지
+        low = (_robust_z(V[ido], BASE7_N) < -AIR_K) & (_robust_z(V[iv], BASE7_N) > AIR_K)
+        for t in range(1, T):
+            f[:, t] |= f[:, t - 1] & low[:, t]
+        air[ido] |= f
+        air[iv] |= f
+
+    # 고분자 부족: 같은 계열 약품 투입(평소 대비 배율 평균) 대비 고분자 비율이 평소보다 낮음 (고분자 센서에 표시)
+    ratio = np.zeros_like(spec)
+    for rule in RATIO_RULES:
+        for ids, t in _ratio_groups(meta, rule):
+            med_d = np.median(V[ids, :BASE7_N], axis=1, keepdims=True)
+            C = (V[ids] / med_d).mean(axis=0)
+            P = V[t] / np.median(V[t, :BASE7_N])
+            lr = np.log(np.maximum(P, 1e-9)) - np.log(np.maximum(_lag(C, RATIO_LAG), 1e-9))
+            z = _robust_z(lr[None, :], BASE7_N)
+            ratio[t] = _persist_backfill(_ewm(z) < -RATIO_K, PEER_PERSIST)[0]
+
+    F = {"SPEC": spec, "NEAR": near, "HOLD": hold, "STD": stdx, "PEER": peer,
+         "VALVE": valve, "AIR": air, "RATIO": ratio}
     return Plant(meta, idx, V, F, std, med)
 
 
@@ -672,19 +857,25 @@ import plotly.graph_objects as go
 
 from core import KIND, Plant
 
-LINE_COLOR = "#22d3ee"
+LINE_COLOR = "#0e7490"
+BAND_KINDS = [k for k in KIND if k not in ("SPEC", "NEAR")]   # 세로 음영으로 보여 줄 경고
+
+
+def rgb(hex_color: str) -> str:
+    h = hex_color.lstrip("#")
+    return ",".join(str(int(h[i:i + 2], 16)) for i in (0, 2, 4))
 
 
 def style(fig: go.Figure) -> go.Figure:
-    """다크 관제 테마 공통 스타일."""
+    """밝은 현장 모니터 테마 공통 스타일."""
     fig.update_layout(
-        template="plotly_dark",
+        template="plotly_white",
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(color="#94a3b8"),
+        font=dict(color="#475569"),
     )
-    fig.update_xaxes(gridcolor="rgba(255,255,255,.05)", zeroline=False)
-    fig.update_yaxes(gridcolor="rgba(255,255,255,.05)", zeroline=False)
+    fig.update_xaxes(gridcolor="rgba(15,23,42,.07)", zeroline=False)
+    fig.update_yaxes(gridcolor="rgba(15,23,42,.07)", zeroline=False)
     return fig
 
 
@@ -722,10 +913,10 @@ def sensor_figure(plant: Plant, i: int, window: int, height: int = 230, peers: b
         fig.add_hrect(y0=lsl, y1=lsl + m, fillcolor="rgba(249,115,22,.14)", line_width=0, layer="below")
         fig.add_hrect(y0=y0, y1=lsl, fillcolor="rgba(239,68,68,.12)", line_width=0, layer="below")
 
-    # 이상 구간 세로 음영 (Hold / σ 초과 / 동료 이탈)
-    for kind, rgb in (("HOLD", "59,130,246"), ("STD", "168,85,247"), ("PEER", "236,72,153")):
+    # 이상 구간 세로 음영 (Hold / σ 초과 / 동료 이탈 / 공정 연관 규칙) — 색은 KIND 의 경고 색
+    for kind in BAND_KINDS:
         for a, b in _spans(plant.F[kind][i, -window:], x):
-            fig.add_vrect(x0=a, x1=b, fillcolor=f"rgba({rgb},.16)", line_width=0, layer="below")
+            fig.add_vrect(x0=a, x1=b, fillcolor=f"rgba({rgb(KIND[kind]['color'])},.16)", line_width=0, layer="below")
 
     # 동료(같은 항목 다른 센서) 범위 + 중앙값
     if peers:
@@ -735,8 +926,8 @@ def sensor_figure(plant: Plant, i: int, window: int, height: int = 230, peers: b
             P = plant.V[mem][:, -window:]
             fig.add_trace(go.Scatter(x=x, y=P.min(axis=0), mode="lines", line=dict(width=0), hoverinfo="skip", showlegend=False))
             fig.add_trace(go.Scatter(x=x, y=P.max(axis=0), mode="lines", line=dict(width=0), fill="tonexty",
-                                     fillcolor="rgba(148,163,184,.16)", hoverinfo="skip", showlegend=False))
-            fig.add_trace(go.Scatter(x=x, y=np.median(P, axis=0), mode="lines", line=dict(color="#94a3b8", width=1.2, dash="dot"),
+                                     fillcolor="rgba(100,116,139,.16)", hoverinfo="skip", showlegend=False))
+            fig.add_trace(go.Scatter(x=x, y=np.median(P, axis=0), mode="lines", line=dict(color="#64748b", width=1.2, dash="dot"),
                                      hovertemplate="동료 중앙값 %{y:.2f}<extra></extra>", showlegend=False))
 
     fig.add_trace(
@@ -766,7 +957,7 @@ def sensor_figure(plant: Plant, i: int, window: int, height: int = 230, peers: b
 ## 파일: `views.py`
 
 ````python
-"""화면 3개: 종합 현황(공정 12개) → 공정 상세(계열·조 흐름) → 경고 센터(사고 묶음)."""
+"""화면 4개: 전체 현황(운전 보드) → 공정 상세(계열·조 흐름) → 한눈에 비교 → 경고 센터(사고 묶음)."""
 from __future__ import annotations
 
 import numpy as np
@@ -774,13 +965,14 @@ import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
 
-from charts import _spans, sensor_figure, style
+from charts import BAND_KINDS, LINE_COLOR, _spans, rgb, sensor_figure, style
 from core import (
-    BUILDINGS, KIND, LINES, NONE_RANK, PROCESSES, STEP_MIN, get_plant, incidents, kind_by_rank, tanks_of,
+    BUILDINGS, KIND, LINES, NONE_RANK, PROCESSES, STAGE_SPEC, STEP_MIN, get_plant, incidents, kind_by_rank, tanks_of,
 )
 
 RANGES = {"3시간": 36, "6시간": 72, "12시간": 144, "24시간": 288, "48시간": 576}
-OK_COLOR, RESOLVED_COLOR, DIM = "#22c55e", "#64748b", "#cbd5e1"
+OK_COLOR, RESOLVED_COLOR = "#16a34a", "#64748b"
+ARROW_RATIO = 0.10      # 전체 현황: 1시간 변화가 규격폭의 10%를 넘으면 ▲▼
 
 
 # ───────────────────────── 공통 ─────────────────────────
@@ -806,7 +998,8 @@ def _badges(kinds: list[str]) -> str:
 
 def _legend():
     st.caption(
-        "배경: 주황 = 상하한 근접 · 빨강 = 이탈  |  세로 음영: 파랑 = Hold · 보라 = σ 초과 · 분홍 = 동료 대비 이탈  |  "
+        "배경: 주황 = 상하한 근접 · 빨강 = 이탈  |  세로 음영: 파랑 = Hold · 보라 = σ 초과 · 분홍 = 동료 대비 이탈 · "
+        "갈색 = 개도-투입 불일치 · 하늘색 = DO↓ 공기개도↑ · 남색 = 고분자 부족  |  "
         "회색 띠/점선 = 같은 항목 다른 센서의 범위/중앙값"
     )
 
@@ -857,23 +1050,116 @@ def _incident_charts(plant, x: dict, window: int, prefix: str):
         st.caption("외 센서: " + ", ".join(f"{plant.meta['tank'].iat[i]} {plant.meta['param'].iat[i]}" for i in x["sids"][3:]))
 
 
-# ───────────────────────── 1. 종합 현황 ─────────────────────────
+# ───────────────────────── 1. 전체 현황 ─────────────────────────
+def _kpi_tiles(plant) -> str:
+    n_bad = int((plant.now_rank < NONE_RANK).sum())
+    tiles = [f'<div class="kt ok" style="border-left-color:{OK_COLOR}"><div class="kl">🟢 정상 / 전체 센서</div>'
+             f'<div class="kv">{plant.n - n_bad}<small> / {plant.n}</small></div></div>']
+    for k, v in KIND.items():
+        cnt = int(plant.F[k][:, -1].sum())
+        if cnt:   # 걸린 게 있으면 타일 전체를 경고 색으로
+            cls = "kt hot pulse" if k == "SPEC" else "kt hot"
+            style_ = f"background:{v['color']};border-color:{v['color']}"
+        else:
+            cls, style_ = "kt", ""
+        tiles.append(f'<div class="{cls}" style="border-left-color:{v["color"]};{style_}">'
+                     f'<div class="kl">{v["icon"]} {v["label"].split("(")[0]}</div><div class="kv">{cnt}<small> 개</small></div></div>')
+    return f'<div class="kp">{"".join(tiles)}</div>'
+
+
+def _ticker(inc: list[dict]) -> str:
+    if not inc:
+        return '<div class="tk-ok">● 전 공정 정상 — 진행 중인 경고가 없습니다</div>'
+    chips = "".join(
+        f'<div class="tc" style="background:{_color(x["rank"])}">{_status_text(x["rank"])} · {x["title"]} '
+        f'<span>· {x["what"]} · {x["first"]:%H:%M}~</span></div>'
+        for x in inc
+    )
+    return f'<div class="tk">{chips}</div>'
+
+
+def _legend_board() -> str:
+    items = [f'<span><i style="background:#ffffff"></i>정상</span>']
+    items += [f'<span><i class="k-{k}"></i>{v["label"].split("(")[0]}</span>' for k, v in KIND.items()]
+    items += ['<span><i style="background:#e2e8f0"></i>조회 구간 안에 있었다가 해소</span>',
+              f'<span>▲▼ 1시간 새 규격폭의 {ARROW_RATIO:.0%} 넘게 변함</span>', '<span>칸에 마우스를 올리면 규격·상태 상세</span>']
+    return f'<div class="lg">{"".join(items)}</div>'
+
+
+def _board_html(plant, p: str, window: int, wide: bool = True) -> str:
+    """공정 1개 운전 보드: 행 = 동·계열, 열 = 공정 흐름 순서의 조·항목, 칸 = 현재값(이상이면 경고 색)."""
+    tanks = tanks_of(p)
+    dec = plant.meta["dec"].to_numpy()
+    h1 = '<th colspan="2" rowspan="2">동 · 계열</th>' + "".join(f'<th colspan="{len(ps)}">{t}</th>' for t, _, ps in tanks)
+    h2 = "".join(f'<th>{prm}<small>{STAGE_SPEC[(stage, prm)]["unit"]}</small></th>' for _, stage, ps in tanks for prm in ps)
+    rows = []
+    for b in BUILDINGS:
+        for li, l in enumerate(LINES):
+            tds = [f'<td class="rb" rowspan="{len(LINES)}">{b}</td>'] if li == 0 else []
+            tds.append(f'<td class="rl">{l[0]}</td>')
+            for tank, _, params in tanks:
+                for prm in params:
+                    i = plant.find(b, p, l, tank, prm)
+                    v, d = plant.V[i, -1], plant.V[i, -1] - plant.V[i, -13]
+                    span = plant.usl[i] - (0.0 if np.isnan(plant.lsl[i]) else plant.lsl[i])
+                    arrow = ('<span class="ar">▲</span>' if d > 0 else '<span class="ar">▼</span>') if abs(d) > ARROW_RATIO * span else ""
+                    kinds = plant.active_kinds(i)
+                    if kinds:
+                        cls = f"k k-{kinds[0]}"
+                        state = ", ".join(KIND[k]["label"] for k in kinds)
+                    elif plant.window_kinds(i, window):
+                        cls, state = "res", "해소됨 (" + ", ".join(KIND[k]["label"].split("(")[0] for k in plant.window_kinds(i, window)) + ")"
+                    else:
+                        cls, state = "", "정상"
+                    tip = f"{plant.name(i)}&#10;현재 {v:.{dec[i]}f} {plant.meta['unit'].iat[i]} · 규격 {plant.spec_text(i)}&#10;1시간 변화 {d:+.{dec[i]}f}&#10;상태: {state}"
+                    tds.append(f'<td class="{cls}" title="{tip}">{v:.{dec[i]}f}{arrow}</td>')
+            rows.append(f'<tr class="{"bs" if li == 0 else ""}">{"".join(tds)}</tr>')
+    return (f'<div class="bd-wrap"><table class="bd{"" if wide else " nr"}">'
+            f'<thead><tr>{h1}</tr><tr class="h2">{h2}</tr></thead><tbody>{"".join(rows)}</tbody></table></div>')
+
+
+def _board(plant, p: str, window: int, wide: bool):
+    ids = plant.sel(proc=p)
+    r = plant.now_rank[ids]
+    worst = int(r.min())
+    n_b = int((r < NONE_RANK).sum())
+    n_peer = int(plant.F["PEER"][ids, -1].sum())
+    with st.container(border=True):
+        if wide:
+            head, *btns = st.columns([3] + [1] * len(BUILDINGS), vertical_alignment="center")
+        else:     # 좁은 보드는 버튼을 제목 아래 줄로
+            head, btns = st.container(), st.columns(len(BUILDINGS))
+        head.markdown(
+            f'<div class="bt"><b>{p}</b><span class="st" style="color:{_color(worst)}">● {_status_text(worst)}</span>'
+            f'<span>이상 센서 <b style="font-size:14px">{n_b}</b> / {len(ids)}'
+            + (f' · 조기경보 <b style="font-size:14px">{n_peer}</b>' if n_peer else "") + "</span></div>",
+            unsafe_allow_html=True,
+        )
+        for c, b in zip(btns, BUILDINGS):
+            if c.button(f"{b} ›", key=f"go-{b}-{p}", width="stretch", help=f"{b} {p} 공정 상세로 이동"):
+                st.session_state["_jump"] = (b, p)
+                st.switch_page(st.session_state["_pages"]["process"])
+        st.markdown(_board_html(plant, p, window, wide), unsafe_allow_html=True)
+
+
 def overview():
     plant, window = _ctx()
-    _header("종합 현황", "3개 동 · 12개 공정 · 센서 전체를 한눈에")
+    _header("전체 현황", "전 공정 운전값을 한 화면에 — 경고 색 칸이 지금 확인할 곳")
 
-    now = {k: int(plant.F[k][:, -1].sum()) for k in KIND}
-    n_bad = int((plant.now_rank < NONE_RANK).sum())
-    cols = st.columns(6)
-    cols[0].metric("🟢 정상 / 전체 센서", f"{plant.n - n_bad} / {plant.n}")
-    for c, k in zip(cols[1:], KIND):
-        c.metric(f"{KIND[k]['icon']} {KIND[k]['label'].split('(')[0]}", f"{now[k]} 개")
-
+    st.markdown(_kpi_tiles(plant), unsafe_allow_html=True)
     inc = [x for x in incidents(plant, window) if x["active"]]
-    st.subheader("지금 확인할 곳")
-    if not inc:
-        st.success("진행 중인 경고가 없습니다. 전 공정 정상입니다.")
-    else:
+    st.markdown(_ticker(inc), unsafe_allow_html=True)
+
+    st.markdown(_legend_board(), unsafe_allow_html=True)
+    first, *rest = PROCESSES          # 조가 가장 많은 첫 공정은 한 줄 전체, 나머지는 2개씩 나란히
+    _board(plant, first, window, wide=True)
+    for k in range(0, len(rest), 2):
+        for col, p in zip(st.columns(2), rest[k:k + 2]):
+            with col:
+                _board(plant, p, window, wide=False)
+
+    if inc:
+        st.subheader("경고 그래프")
         st.caption(f"진행 중 {len(inc)}건 (같은 계열·같은 조의 경고는 1건으로 묶었어요) — 줄을 누르면 그래프가 펼쳐져요")
         all_open = st.toggle("진행 중 사고 모두 펼치기", value=False, key="ov_all_open")
         for n, x in enumerate(inc[:8]):
@@ -886,33 +1172,6 @@ def overview():
         if len(inc) > 8:
             st.caption(f"외 {len(inc) - 8}건 — 경고 센터에서 모두 볼 수 있어요")
         st.page_link(st.session_state["_pages"]["alerts"], label="경고 센터에서 그래프와 함께 보기", icon="🚨")
-
-    st.subheader("공정 현황")
-    st.caption("카드 = 공정 1개(계열 4개). A~D 칩의 색은 그 계열에서 가장 나쁜 센서 상태예요. [상세]를 눌러 내려가 보세요.")
-    for b in BUILDINGS:
-        st.markdown(f'<div class="bh">{b}</div>', unsafe_allow_html=True)
-        cols = st.columns(4)
-        for col, p in zip(cols, PROCESSES):
-            ids = plant.sel(bldg=b, proc=p)
-            r = plant.now_rank[ids]
-            worst = int(r.min())
-            n_b = int((r < NONE_RANK).sum())
-            n_peer = int(plant.F["PEER"][ids, -1].sum())
-            chips = ""
-            for l in LINES:
-                lr = int(plant.now_rank[plant.sel(bldg=b, proc=p, line=l)].min())
-                chips += f'<span class="ln" style="background:{_color(lr)}33;border-color:{_color(lr)}">{l[0]}</span>'
-            sub = f"이상 센서 <b>{n_b}</b> / {len(ids)}" + (f" · 조기경보 <b>{n_peer}</b>" if n_peer else "")
-            with col:
-                with st.container(border=True):
-                    st.markdown(
-                        f'<div class="pt"><b>{p}</b><span style="color:{_color(worst)}">● {_status_text(worst)}</span></div>'
-                        f'<div class="pl">{chips}</div><div class="ps">{sub}</div>',
-                        unsafe_allow_html=True,
-                    )
-                    if st.button("상세 ›", key=f"go-{b}-{p}", width="stretch"):
-                        st.session_state["_jump"] = (b, p)
-                        st.switch_page(st.session_state["_pages"]["process"])
 
 
 # ───────────────────────── 2. 공정 상세 ─────────────────────────
@@ -979,8 +1238,8 @@ def process():
                 st.button(label, key=key, on_click=_toggle_node, args=(l, tank), width="stretch")
             is_open = (l, tank) in opened
             glow = f"box-shadow:0 0 10px {_color(w)}66;" if w < NONE_RANK else ""
-            border = "2px solid #22d3ee" if is_open else f"1px solid {_color(w)}aa"
-            bg = "background:rgba(34,211,238,.10) !important;" if is_open else ""
+            border = "2px solid #0e7490" if is_open else f"1px solid {_color(w)}aa"
+            bg = "background:#ecfeff !important;" if is_open else ""
             css.append(f".st-key-{key} button{{border:{border} !important;{glow}{bg}}}")
 
         for tank, stage, params in tanks:                          # 펼친 조의 그래프를 해당 계열 바로 아래에
@@ -1026,10 +1285,10 @@ def compare():
             i = plant.find(b, p, l, tank, prm)
             y = plant.V[i, -window:]
             ks = plant.active_kinds(i)
-            color = KIND[ks[0]]["color"] if ks else "#22d3ee"
-            for kind, rgb in (("HOLD", "59,130,246"), ("STD", "168,85,247"), ("PEER", "236,72,153")):
+            color = KIND[ks[0]]["color"] if ks else LINE_COLOR
+            for kind in BAND_KINDS:
                 for s0, s1 in _spans(plant.F[kind][i, -window:], x):
-                    fig.add_vrect(x0=s0, x1=s1, fillcolor=f"rgba({rgb},.22)", line_width=0, layer="below", row=r, col=ci)
+                    fig.add_vrect(x0=s0, x1=s1, fillcolor=f"rgba({rgb(KIND[kind]['color'])},.22)", line_width=0, layer="below", row=r, col=ci)
             fig.add_trace(go.Scatter(x=x, y=y, mode="lines", line=dict(color=color, width=1.4), showlegend=False,
                                      hovertemplate="%{x|%H:%M}  <b>%{y:.2f}</b><extra></extra>"), row=r, col=ci)
             for kind, size in (("NEAR", 4), ("SPEC", 5)):
@@ -1057,7 +1316,7 @@ def compare():
     st.plotly_chart(style(fig), width="stretch", key=f"cmp-{b}-{p}-{prm}-{window}-{full}", config={"displayModeBar": False})
     st.caption(
         "같은 열 = 같은 종류의 조라 y축을 맞췄어요. 한 줄(계열)이 다른 줄들과 다르게 움직이면 이상 후보예요. "
-        "선 색 = 현재 상태(시안=정상) · 붉은 점선 = LSL/USL · 세로 음영: 파랑 Hold, 보라 σ 초과, 분홍 동료 대비 이탈"
+        "선 색 = 현재 상태(청록=정상) · 붉은 점선 = LSL/USL · 세로 음영 = 경고 구간(색은 경고 종류, 위쪽 '기준' 참고)"
     )
 
 
@@ -1102,7 +1361,7 @@ def alerts():
             tag = "진행 중" if x["active"] else "해소됨"
             top[0].markdown(
                 f'#### <span style="color:{_color(x["rank"])}">●</span> {x["title"]}'
-                f'<br><span style="font-size:13px;color:#94a3b8;font-weight:400">{x["what"]}  |  {tag}  |  '
+                f'<br><span style="font-size:13px;color:#475569;font-weight:400">{x["what"]}  |  {tag}  |  '
                 f'{x["first"]:%H:%M} → {x["last"]:%H:%M}</span>',
                 unsafe_allow_html=True,
             )
