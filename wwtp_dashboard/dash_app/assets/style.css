@@ -1,0 +1,115 @@
+/* 밝은 현장 모니터 + HMI 패널 (Streamlit 버전 app.py 의 CSS 를 Dash 클래스로 옮김). 외부 CDN·웹폰트 없음. */
+:root { --mono: 'D2Coding','Consolas','Menlo',monospace; --ink:#0f172a; --rule:#1e293b; --mute:#64748b; }
+html, body { margin:0; background:#eef2f6; color:var(--ink); font-family:'Malgun Gothic','Apple SD Gothic Neo','Noto Sans KR',sans-serif; font-size:14px; }
+#react-entry-point, ._dash-loading { }
+._dash-undo-redo { display:none; }
+.page { max-width:1920px; margin:0 auto; padding:0 20px 40px; }
+.cap { color:var(--mute); font-size:12px; margin:2px 0 6px; }
+h3 { margin:10px 0 0; font-size:20px; letter-spacing:.02em; }
+
+/* 상단 탭 */
+.topnav { display:flex; gap:0; background:#fff; border-bottom:1px solid #cbd5e1; padding:0 20px; position:sticky; top:0; z-index:20; }
+.tnav { padding:11px 18px; color:#475569; text-decoration:none; font-weight:700; border-bottom:3px solid transparent; }
+.tnav:hover { background:#f1f5f9; }
+.tnav.on { color:var(--ink); border-bottom-color:#0e7490; }
+
+/* 헤더: 상자 없이 굵은 밑줄 하나 */
+.wwtp-bar { display:flex; align-items:center; gap:14px; padding:12px 20px 8px; border-bottom:3px solid var(--rule); max-width:1880px; margin:0 auto; }
+.wwtp-mark { font-family:var(--mono); font-weight:800; font-size:13px; letter-spacing:.1em; color:#fff; background:var(--rule); padding:7px 9px; }
+.wwtp-title { font-weight:800; letter-spacing:.06em; font-size:15px; line-height:1.2; }
+.wwtp-sub { color:var(--mute); font-size:11px; }
+.wwtp-live { font-family:var(--mono); font-size:10px; padding:1px 6px; color:#0e7490; border:1px solid #0e7490; margin-left:8px; }
+.clock { margin-left:auto; font-family:var(--mono); font-size:20px; font-weight:700; color:var(--ink); }
+.wwtp-pill { padding:6px 14px; font-size:13px; font-weight:800; font-family:var(--mono); letter-spacing:.04em; color:#fff; }
+.wwtp-pill.bad { background:#dc2626; animation:glow 1.6s infinite; }
+.wwtp-pill.ok { background:#16a34a; }
+@keyframes glow { 0%,100% { box-shadow:0 0 0 0 rgba(220,38,38,.55);} 50% { box-shadow:0 0 0 5px rgba(220,38,38,0);} }
+
+/* 공통 컨트롤 줄 */
+.ctlbar { display:flex; align-items:center; gap:28px; padding:8px 20px 4px; max-width:1880px; margin:0 auto; flex-wrap:wrap; }
+.ctl { display:flex; align-items:center; gap:10px; font-size:12px; color:var(--mute); font-weight:700; }
+.ctl.wide { width:420px; }
+.ctl.wide .slider { flex:1; padding:0 14px 14px; }
+.seg label { margin-right:12px; color:var(--ink); font-weight:700; cursor:pointer; }
+.rules { margin-left:auto; font-size:12px; position:relative; }
+.rules summary { cursor:pointer; font-weight:700; color:#0e7490; }
+.rules ul { position:absolute; right:0; top:22px; z-index:30; background:#fff; border:1px solid #94a3b8; padding:10px 14px 10px 30px; width:520px; margin:0; line-height:1.6; }
+.Select-control, .dash-dropdown { font-size:13px; }
+
+.sec { font-weight:800; font-size:13px; letter-spacing:.08em; color:var(--ink); border-bottom:2px solid var(--rule);
+  margin:18px 0 6px; padding-bottom:3px; display:flex; justify-content:space-between; align-items:baseline; }
+.sec.first { margin-top:6px; }
+.sec span { font-weight:400; letter-spacing:0; color:var(--mute); font-size:12px; }
+.ok-bar { background:#16a34a; color:#fff; font-weight:800; padding:12px 16px; }
+
+/* ① 주요 이상점 요약 바 */
+.bn { display:block; width:100%; text-align:left; border:0; color:#fff; font-weight:700; font-size:14px; padding:8px 14px; margin-bottom:3px;
+  cursor:pointer; font-family:inherit; }
+.bn.red { background:#dc2626; } .bn.yellow { background:#b45309; }
+.bn.first { padding:13px 16px; font-size:17px; font-weight:800; }
+.bn.pulse { animation:pulseR 1.8s ease-in-out infinite; }
+.bn.sel { outline:3px solid #0f172a; outline-offset:2px; }
+.bn:hover { filter:brightness(1.08); }
+@keyframes pulseR { 0%,100% { box-shadow:0 0 0 0 rgba(220,38,38,0); } 50% { box-shadow:0 0 16px 2px rgba(220,38,38,.55); } }
+
+/* ② 공정 흐름 노드(신호등 + 글로우) + 영향 화살표 */
+.lane { display:flex; align-items:center; margin-bottom:10px; }
+.lane-h { flex:0 0 84px; font-weight:800; font-size:16px; line-height:1.2; }
+.lane-h small { display:block; font-size:11.5px; font-weight:700; margin-top:2px; }
+.fn { flex:1 1 0; min-width:0; text-align:left; padding:8px 10px; border-radius:6px; border:1px solid #cbd5e1; background:#fff; cursor:pointer;
+  font-family:inherit; font-size:12px; line-height:1.45; color:#475569; }
+.fn:hover { filter:brightness(.97); }
+.fn .h { font-weight:800; font-size:13px; color:var(--ink); }
+.fn .st { font-weight:800; }
+.fn.red { border:2px solid #dc2626; background:#fef2f2; animation:glowR 1.8s ease-in-out infinite; }
+.fn.yellow { border:2px solid #f59e0b; background:#fffbeb; animation:glowY 2.2s ease-in-out infinite; }
+.fn.sel { outline:3px solid #0f172a; outline-offset:3px; }
+@keyframes glowR { 0%,100% { box-shadow:0 0 4px 0 rgba(220,38,38,.25); } 50% { box-shadow:0 0 18px 4px rgba(220,38,38,.5); } }
+@keyframes glowY { 0%,100% { box-shadow:0 0 3px 0 rgba(245,158,11,.25); } 50% { box-shadow:0 0 16px 3px rgba(245,158,11,.5); } }
+.fa { flex:0 0 56px; position:relative; height:40px; }
+.fa i { position:absolute; left:0; right:11px; top:24px; height:4px; background:var(--c); }
+.fa i::after { content:""; position:absolute; right:-11px; top:-6px; border-left:12px solid var(--c); border-top:8px solid transparent; border-bottom:8px solid transparent; }
+.fa b { position:absolute; left:0; right:0; top:4px; text-align:center; font-size:10.5px; color:var(--c); }
+
+/* ④ 센서 머리글 (카드·metric 위젯 대신 선 하나) */
+.sh { border-top:2px solid var(--rule); padding:4px 0 0; display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 10px; }
+.sh .p { font-weight:800; font-size:13px; }
+.sh .v { font-family:var(--mono); font-size:24px; font-weight:700; line-height:1.1; }
+.sh .u { color:var(--mute); font-size:12px; margin-left:-6px; }
+.sh .dl { font-family:var(--mono); color:var(--mute); font-size:12px; }
+.sh .s { margin-left:auto; font-size:12.5px; font-weight:800; }
+.sh .x { flex-basis:100%; font-size:11.5px; color:var(--mute); }
+.grid2 { display:grid; grid-template-columns:1fr 1fr; gap:6px 24px; }
+.grid3 { display:grid; grid-template-columns:repeat(3,1fr); gap:6px 24px; }
+
+/* 공정 상세: 계열 머리 + 탱크(버튼) + 탱크 사이 배관 */
+.lh { display:flex; gap:12px; align-items:center; margin:16px 0 6px; font-size:13px; font-weight:700; border-bottom:1px solid #94a3b8; padding-bottom:4px; }
+.lh b { background:var(--rule); color:#fff; font-family:var(--mono); padding:2px 9px; font-size:13px; }
+.tanks { display:flex; align-items:stretch; }
+.tk { flex:1 1 0; min-width:0; text-align:left; background:#fff; border:2px solid #475569; border-left-width:2px; padding:6px 10px; cursor:pointer;
+  font-family:var(--mono); font-size:12px; line-height:1.5; color:var(--mute); border-radius:0; }
+.tk:hover { background:#f1f5f9; }
+.tk .n { font-family:'Malgun Gothic',sans-serif; font-weight:800; font-size:13px; color:var(--ink); display:block; }
+.tk .bad { font-weight:800; }
+.tk.open { background:#ecfeff; }
+.tk.warn { border-left-width:8px; }
+.pipe { flex:0 0 16px; position:relative; }
+.pipe::before { content:""; position:absolute; top:50%; left:0; right:6px; height:3px; background:#475569; transform:translateY(-50%); }
+.pipe::after { content:""; position:absolute; top:50%; right:0; transform:translateY(-50%); border-left:8px solid #475569; border-top:6px solid transparent; border-bottom:6px solid transparent; }
+.xh { margin:8px 0 2px; font-size:13px; color:var(--mute); border-left:4px solid #0e7490; padding-left:8px; }
+.xh b { color:var(--ink); }
+.btnrow { display:flex; gap:8px; margin:6px 0; }
+.btn { background:#fff; border:1px solid #475569; padding:6px 14px; font-family:inherit; font-weight:700; cursor:pointer; font-size:12.5px; }
+.btn:hover { background:#f1f5f9; }
+
+/* 경고 센터: 사고 머리 */
+.ih { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 14px; margin:18px 0 6px; padding:6px 10px; border-top:2px solid var(--rule);
+  border-left:6px solid var(--c); background:#fff; font-size:13px; scroll-margin-top:60px; }
+.ih .t { font-family:var(--mono); font-weight:700; }
+.ih b { font-size:15px; }
+.ih .w { color:#475569; }
+.ih .g { font-family:var(--mono); font-size:11px; padding:1px 6px; border:1px solid currentColor; color:var(--c); }
+.ih .ks { margin-left:auto; font-weight:800; }
+.filters { display:grid; grid-template-columns:2.6fr 1fr 1.2fr; gap:16px; align-items:end; margin:8px 0; }
+.filters label { font-size:12px; font-weight:700; color:var(--mute); display:block; margin-bottom:3px; }
+.msg { background:#fff; border:1px solid #cbd5e1; padding:12px 16px; margin:10px 0; }

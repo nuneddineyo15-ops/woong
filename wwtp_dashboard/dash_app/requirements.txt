@@ -1,0 +1,7 @@
+# Dash 버전 (python dash_app/main.py). 테스트한 버전: dash 4.5.0 / plotly 7.1.0 — 사내 pip 에서 맞는 버전 확인
+dash>=3.0
+plotly>=5.20
+pandas>=2.0
+numpy>=1.26
+# 운영 서버(여러 프로세스)로 띄울 때: gunicorn "dash_app.main:server"
+# gunicorn
