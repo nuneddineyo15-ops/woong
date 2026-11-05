@@ -6,9 +6,10 @@
 """
 from __future__ import annotations
 
+import os
+
 import numpy as np
 import pandas as pd
-import streamlit as st
 
 # ─────────────────────────────────────────────────────────────
 # 1. 설비 구조
@@ -276,7 +277,17 @@ def _lag(x: np.ndarray, k: int) -> np.ndarray:
     return out
 
 
-@st.cache_resource(show_spinner="센서 데이터 생성 중…")
+def _cache_resource(fn):
+    """Streamlit 이면 st.cache_resource, Dash 등 다른 프레임워크(WWTP_NO_STREAMLIT=1)면 lru_cache.
+    감지 로직(core)이 화면 프레임워크에 묶이지 않게 하려는 분기."""
+    if os.environ.get("WWTP_NO_STREAMLIT"):
+        from functools import lru_cache
+        return lru_cache(maxsize=1)(fn)
+    import streamlit as st
+    return st.cache_resource(show_spinner="센서 데이터 생성 중…")(fn)
+
+
+@_cache_resource
 def get_plant() -> Plant:
     rng = np.random.default_rng(11)
 
