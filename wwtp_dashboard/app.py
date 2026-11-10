@@ -44,31 +44,28 @@ h3 { letter-spacing:.02em; }
   margin:18px 0 6px; padding-bottom:3px; display:flex; justify-content:space-between; align-items:baseline; }
 .sec span { font-weight:400; letter-spacing:0; color:var(--mute); font-size:12px; }
 
-/* 전체 현황 ① 주요 이상점 요약 바 (색·깜빡임은 views._banner 가 바마다 넣음) */
-[class*="st-key-bn-"] button { justify-content:flex-start; border:0 !important; border-radius:0 !important; padding:8px 14px !important;
-  min-height:0; height:auto; }
-[class*="st-key-bn-"] button div { width:100%; justify-content:flex-start; text-align:left; }
-[class*="st-key-bn-"] button p { font-size:14px; font-weight:700; text-align:left; color:#ffffff; margin:0; }
-[class*="st-key-bn-"] button:hover { filter:brightness(1.08); }
-.st-key-bn-0 button { padding:13px 16px !important; }
-.st-key-bn-0 button p { font-size:17px; font-weight:800; }
+/* 전체 현황 ⓪ 상황 한 줄: 상자 없이 큰 숫자 + 한 문장 */
+.sum { display:flex; align-items:flex-end; gap:30px; border-bottom:2px solid var(--rule); padding:0 0 9px; margin-bottom:2px; flex-wrap:wrap; }
+.sum .k { display:flex; align-items:flex-end; gap:8px; }
+.sum .k i { font-style:normal; font-family:var(--mono); font-size:46px; font-weight:800; line-height:.85; }
+.sum .k span { font-size:13px; font-weight:800; padding-bottom:2px; }
+.sum .k.red { color:#dc2626; } .sum .k.yellow { color:#b45309; } .sum .k.ok { color:#64748b; }
+.sum .lead { margin-left:auto; text-align:right; font-size:12px; color:var(--mute); line-height:1.35; }
+.sum .lead b { display:block; color:var(--ink); font-size:15px; }
+.sum .at { font-size:11px; color:var(--mute); text-align:right; line-height:1.3; border-left:1px solid #94a3b8; padding-left:14px; }
+.sum .at b { display:block; font-family:var(--mono); font-size:15px; color:var(--ink); }
 .ok-bar { background:#16a34a; color:#fff; font-weight:800; padding:12px 16px; }
-@keyframes pulseR { 0%,100% { box-shadow:0 0 0 0 rgba(220,38,38,0); } 50% { box-shadow:0 0 16px 2px rgba(220,38,38,.55); } }
 
-/* 전체 현황 ② 공정 흐름 노드(신호등 + 글로우) + 영향 화살표 */
-[class*="st-key-fn-"] button { height:auto; min-height:0; padding:8px 10px; justify-content:flex-start; border-radius:6px !important; }
-[class*="st-key-fn-"] button p { font-size:12px; line-height:1.45; text-align:left; margin:0; color:#475569; }
-[class*="st-key-fn-"] button em { font-style:normal; font-weight:800; font-size:13px; color:var(--ink); }
-[class*="st-key-fn-"] button strong { font-weight:800; }
-@keyframes glowR { 0%,100% { box-shadow:0 0 4px 0 rgba(220,38,38,.25); } 50% { box-shadow:0 0 18px 4px rgba(220,38,38,.5); } }
-@keyframes glowY { 0%,100% { box-shadow:0 0 3px 0 rgba(245,158,11,.25); } 50% { box-shadow:0 0 16px 3px rgba(245,158,11,.5); } }
-.ln2 { font-weight:800; font-size:16px; color:var(--ink); line-height:1.2; }
-.ln2 small { display:block; font-size:11.5px; font-weight:700; margin-top:2px; }
-.fa { position:relative; height:40px; }
-.fa i { position:absolute; left:0; right:11px; top:24px; height:4px; background:var(--c); }
-.fa i::after { content:""; position:absolute; right:-11px; top:-6px; border-left:12px solid var(--c);
-  border-top:8px solid transparent; border-bottom:8px solid transparent; }
-.fa b { position:absolute; left:0; right:0; top:4px; text-align:center; font-size:10.5px; color:var(--c); }
+/* 전체 현황 ② 시급한 순 목록 (왼쪽 띠 색·선택 강조는 views._priority 가 줄마다 넣음) */
+.st-key-plist [data-testid="stVerticalBlock"] { gap:.28rem; }
+.pg { font-size:11.5px; font-weight:800; letter-spacing:.08em; margin:6px 0 0; }
+.pg.red { color:#dc2626; } .pg.yellow { color:#b45309; }
+[class*="st-key-pl-"] button { justify-content:flex-start; height:auto; min-height:0; padding:6px 10px !important; background:#ffffff;
+  border:1px solid #cbd5e1 !important; border-radius:0 !important; box-shadow:none !important; }
+[class*="st-key-pl-"] button div { width:100%; justify-content:flex-start; text-align:left; }
+[class*="st-key-pl-"] button p { font-size:12.5px; line-height:1.45; text-align:left; margin:0; color:#475569; }
+[class*="st-key-pl-"] button strong { color:var(--ink); font-weight:800; }
+[class*="st-key-pl-"] button:hover { background:#f1f5f9; }
 
 /* 공정 상세: 계열 머리 + 탱크(버튼) + 탱크 사이 배관 */
 .lh { display:flex; gap:12px; align-items:center; margin:16px 0 6px; font-size:13px; font-weight:700;

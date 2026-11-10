@@ -85,14 +85,18 @@ def _incident_charts(plant, x: dict, window: int, prefix: str):
 
 
 # ───────────────────────── 1. 전체 현황 ─────────────────────────
-# 공정 흐름 중심 (사용자 디자인 지시서, 2026-11-04): 3초 안에 어느 공정이 이상인지 보이게.
-#   ① 주요 이상점 요약 바(이벤트 스택) → ② 공정 흐름 노드(신호등 + 글로우 + 영향 화살표)
-#   → ③ 이상점 요약 캔버스(시간축) → ④ 공정 상세 트렌드.
-#   바·노드·캔버스 점 중 어느 것을 눌러도 같은 '선택'으로 묶여 노드 강조와 아래 트렌드가 함께 바뀜.
+# 한 화면 구성 (2026-11-10 재설계). 스크롤 없이 "괜찮은가 → 어디서 → 무엇부터 → 왜" 순서로 읽히게.
+#   ⓪ 상황 한 줄      : 조치 필요 / 확인 필요 / 정상 센서 수 + 가장 급한 것 한 문장
+#   ① 플랜트 맵       : 공정 흐름(조 종류 노드) 안에 동 3 × 계열 4 점 행렬 → 어느 동·계열인지 바로 보임. 점을 누르면 선택
+#   ② 시급한 순 목록  : 위치 · 현상 · 현재값 · 몇 분째. 누르면 선택
+#   ③ 선택 상세       : 선택한 곳의 센서 트렌드를 한 줄에  (+ 접어 둔 시간순 타임라인)
+# 원칙: 정상은 조용하게(작은 회색 점), 이상만 크게·색으로. 맵·목록·타임라인 어디를 눌러도 같은 '선택'으로 묶임.
 SEV_COLOR = {"red": "#dc2626", "yellow": "#f59e0b", "green": "#16a34a"}
 SEV_TEXT = {"red": "조치 필요", "yellow": "확인 필요", "green": "정상"}
+SEV_INK = {"red": "#dc2626", "yellow": "#b45309", "green": "#64748b"}        # 글자용(노랑은 흰 바탕에서 안 보여 갈색)
 IMPACT_COLOR = {"red": "#dc2626", "yellow": "#f97316", "green": "#94a3b8"}   # 다음 단계로 가는 화살표
-BANNER_N = 5
+QUIET = "#dde3ec"                                                             # 정상 점
+MAP_LANE_PX = 112
 
 
 def _kind_name(k: str) -> str:
@@ -130,7 +134,7 @@ def _ikey(x: dict) -> tuple:
     return (x["bldg"], x["proc"], x["line"], x["stage"])
 
 
-def _now(plant, x: dict) -> tuple[int, str]:
+def _now(plant, x: dict) -> tuple[int, int]:
     """사고의 '지금' 가장 심한 경고 (순위, 센서). 이미 풀린 경고(조회 구간 안 과거)는 빼고 판단."""
     best, pick = (True, NONE_RANK), x["sids"][0]
     for i in x["sids"]:
@@ -141,11 +145,10 @@ def _now(plant, x: dict) -> tuple[int, str]:
     return (best[1], pick) if best[1] < NONE_RANK else (x["rank"], x["sids"][0])
 
 
-def _headline(plant, x: dict) -> str:
-    """이상점 요약 문장: [STAGE nn] 공정 조 · 위치 항목 현상 (현재값 단위)."""
+def _what(plant, x: dict) -> tuple[str, int]:
+    """사고의 현상 한마디와 대표 센서."""
     rank, i = _now(plant, x)
     m = plant.meta.iloc[i]
-    k = kind_by_rank(rank)
     v = plant.V[i, -1]
     low = (not np.isnan(plant.lsl[i])) and v < (plant.lsl[i] + plant.usl[i]) / 2
     what = {
@@ -153,107 +156,199 @@ def _headline(plant, x: dict) -> str:
         "NEAR": "하한 근접" if low else "상한 근접",
         "HOLD": "값 고정 1시간+ (센서·통신 확인)", "STD": "변동 급증", "VALVE": "개도-투입 불일치 (막힘·펌프 의심)",
         "AIR": "DO 하락 · 공기개도 상승 (산기관 의심)", "RATIO": "고분자 부족 (약품 대비)", "PEER": "동료 대비 이탈",
-    }[k]
-    n = _stages(m.proc).index(m.stage) + 1
-    return (f"[STAGE {n:02d}] {m.proc} {_stage_name(m.stage)} · {m.bldg} {m.line} {m.tank} {m.param} {what} "
-            f"({v:.{int(m.dec)}f} {m.unit})")
+    }[kind_by_rank(rank)]
+    return what, i
+
+
+def _ago(plant, t) -> str:
+    mins = int((plant.idx[-1] - t).total_seconds() // 60) + STEP_MIN
+    return f"{mins}분째" if mins < 60 else f"{mins // 60}시간 {mins % 60:02d}분째"
+
+
+def _val(plant, i: int) -> str:
+    m = plant.meta.iloc[i]
+    return f"{plant.V[i, -1]:.{int(m.dec)}f} {m.unit}"
+
+
+# ── 선택: 목록 버튼 / 맵의 점 / 타임라인의 점 → st.session_state["ov_sel"] 하나 ──
+# 차트는 한 번 누른 점을 계속 '선택됨'으로 들고 있으므로, 다른 곳에서 선택하면 그 차트의 키를 바꿔 선택을 비운다.
+def _bump(*charts: str):
+    for c in charts:
+        st.session_state[f"_gen_{c}"] = st.session_state.get(f"_gen_{c}", 0) + 1
+
+
+def _chart_key(c: str) -> str:
+    return f"ov_{c}_{st.session_state.get(f'_gen_{c}', 0)}"
 
 
 def _select(kind: str, key: tuple):
-    st.session_state["ov_sel"] = (kind, key)
+    st.session_state["ov_sel"] = (kind, tuple(key))
+    _bump("map", "canvas")
 
 
-def _resolve_selection(inc: list[dict]):
-    """캔버스 점 클릭을 반영하고, 지금 선택(사고 또는 노드)을 돌려줌. 없으면 가장 시급한 사고."""
-    ev = st.session_state.get("ov_canvas")
+def _clicked(c: str) -> tuple | None:
+    ev = st.session_state.get(_chart_key(c))
     try:
         pts = ev["selection"]["points"] if ev else []
     except (KeyError, TypeError):
         pts = []
-    if pts:
-        cd = pts[0].get("customdata")
+    for pt in pts:
+        cd = pt.get("customdata")
         cd = cd[0] if isinstance(cd, (list, tuple)) else cd
-        if cd and cd != st.session_state.get("_ov_canvas_last"):   # 새로 누른 점만 반영 (바·노드 클릭을 덮어쓰지 않게)
-            st.session_state["_ov_canvas_last"] = cd
-            st.session_state["ov_sel"] = ("inc", tuple(cd.split("|")))
+        if isinstance(cd, str) and "|" in cd:
+            return tuple(cd.split("|"))
+    return None
+
+
+def _resolve_selection(order: list[dict]):
+    """맵·타임라인 클릭을 반영하고 지금 선택을 돌려줌. ('inc' | 'cell', (동, 공정, 계열, 조 종류)). 없으면 가장 시급한 사고."""
+    keys = {_ikey(x) for x in order}
+    for c, other in (("map", "canvas"), ("canvas", "map")):
+        cd = _clicked(c)
+        if cd and (st.session_state.get("ov_sel") or (None, None))[1] != cd:
+            st.session_state["ov_sel"] = ("inc" if cd in keys else "cell", cd)
+            _bump(other)
     sel = st.session_state.get("ov_sel")
-    if sel and sel[0] == "inc" and not any(_ikey(x) == tuple(sel[1]) for x in inc):
-        sel = None
-    if not sel and inc:
-        sel = ("inc", _ikey(inc[0]))
+    if sel and sel[0] == "inc" and tuple(sel[1]) not in keys:
+        sel = ("cell", tuple(sel[1]))                          # 조회 구간에서 사라진 사고 → 그 위치만 계속 보여 줌
+    if not sel and order:
+        sel = ("inc", _ikey(order[0]))
     return sel
 
 
-def _banner(plant, act: list[dict], sel):
-    """① 주요 이상점 요약 바: 시급한 순(조치 필요 → 확인 필요). 누르면 그 이상점으로 아래 전체가 연동."""
-    css = []
+def _summary(plant, act: list[dict]):
+    """⓪ 상황 한 줄."""
+    n_red = sum(_sev(_now(plant, x)[0]) == "red" for x in act)
+    n_ok = int((plant.now_rank >= NONE_RANK).sum())
+    if act:
+        x = act[0]
+        what, i = _what(plant, x)
+        m = plant.meta.iloc[i]
+        lead = (f'가장 급한 것<b>{x["bldg"]} {x["proc"]} {x["line"]} {m.tank} — {m.param} {what} '
+                f'<span style="color:{SEV_INK[_sev(_now(plant, x)[0])]}">{_val(plant, i)}</span> · {_ago(plant, x["first"])}</b>')
+    else:
+        lead = "<b>전 공정 정상 — 진행 중인 이상점 없음</b>"
+    st.markdown(
+        f'<div class="sum"><div class="k red"><i>{n_red}</i><span>조치 필요</span></div>'
+        f'<div class="k yellow"><i>{len(act) - n_red}</i><span>확인 필요</span></div>'
+        f'<div class="k ok"><i>{n_ok}</i><span>/ {plant.n} 센서 정상</span></div>'
+        f'<div class="lead">{lead}</div>'
+        f'<div class="at">데이터 기준<b>{plant.idx[-1]:%m/%d %H:%M}</b>{STEP_MIN}분 평균</div></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def _plant_map(plant, sel_cell: tuple | None) -> go.Figure:
+    """① 플랜트 맵: 공정마다 한 줄, 조 종류 = 노드. 노드 안 점 행렬 = 세로 동(1~3) × 가로 계열(A~D)."""
+    grp = plant.meta.groupby(["proc", "stage", "bldg", "line"], sort=False).indices
+    nw, total, dx, dy = 1.0, 5.9, 0.17, 0.165                    # 노드 폭, 한 줄 전체 폭, 점 간격(가로·세로)
+    dots = dict(x=[], y=[], c=[], s=[], lw=[], cd=[], hv=[])
+    txt = {k: dict(x=[], y=[], t=[], c=[]) for k in ("title", "count", "row", "col", "lane", "imp")}
+
+    def put(k, x, y, t, c="#0f172a"):
+        d = txt[k]
+        d["x"].append(x); d["y"].append(y); d["t"].append(t); d["c"].append(c)
+
+    fig = go.Figure()
+    for pi, p in enumerate(PROCESSES):
+        sts = _stages(p)
+        gap = (total - len(sts) * nw) / (len(sts) - 1)              # 줄마다 노드 수가 달라도 양 끝을 맞춤
+        lane_sev = "green"
+        for si, stage in enumerate(sts):
+            x0 = si * (nw + gap)
+            node_sev, n_bad = "green", 0
+            for bi, b in enumerate(BUILDINGS):
+                put("row", x0 + 0.27, pi + 0.03 + bi * dy, b, "#94a3b8")
+                for li, l in enumerate(LINES):
+                    ids = grp[(p, stage, b, l)]
+                    sv, j = _sev_ids(plant, ids)
+                    bad = int((plant.now_rank[ids] < NONE_RANK).sum())
+                    n_bad += bad
+                    if sv == "red" or (sv == "yellow" and node_sev == "green"):
+                        node_sev = sv
+                    picked = sel_cell == (b, p, l, stage)
+                    dots["x"].append(x0 + 0.37 + li * dx)
+                    dots["y"].append(pi + 0.03 + bi * dy)
+                    dots["c"].append(QUIET if sv == "green" else SEV_COLOR[sv])
+                    dots["s"].append(18 if picked else (15 if sv != "green" else 8))
+                    dots["lw"].append(3 if picked else 0)
+                    dots["cd"].append("|".join((b, p, l, stage)))
+                    if j is None:
+                        dots["hv"].append(f"{b} · {p} · {l} · {_stage_name(stage)}<br>정상 (센서 {len(ids)}개)")
+                    else:
+                        m = plant.meta.iloc[j]
+                        dots["hv"].append(f"<b>{b} · {p} · {l} · {_stage_name(stage)}</b><br>{SEV_TEXT[sv]} · 이상 {bad}/{len(ids)}"
+                                          f"<br>{m.tank} {m.param} {_val(plant, j)} — {_status_text(int(plant.now_rank[j]))}")
+            for li, l in enumerate(LINES):
+                put("col", x0 + 0.37 + li * dx, pi - 0.13, l[0], "#94a3b8")
+            if node_sev == "red" or (node_sev == "yellow" and lane_sev == "green"):
+                lane_sev = node_sev
+            bad_node = node_sev != "green"
+            fig.add_shape(type="rect", x0=x0, x1=x0 + nw, y0=pi - 0.46, y1=pi + 0.47, layer="below",
+                          fillcolor={"red": "#fef2f2", "yellow": "#fffbeb", "green": "#ffffff"}[node_sev],
+                          line=dict(color=SEV_COLOR[node_sev] if bad_node else "#cbd5e1", width=2.5 if bad_node else 1))
+            put("title", x0 + 0.05, pi - 0.32, f"<span style='color:#94a3b8'>{si + 1:02d}</span> <b>{_stage_name(stage)}</b>")
+            if n_bad:
+                put("count", x0 + nw - 0.05, pi - 0.32, f"이상 <b>{n_bad}</b>", SEV_INK[node_sev])
+            if si < len(sts) - 1:                                       # 영향 화살표: 앞 단계가 이상이면 주황/빨강
+                c = IMPACT_COLOR[node_sev]
+                fig.add_annotation(x=x0 + nw + gap - 0.03, y=pi, ax=x0 + nw + 0.03, ay=pi, xref="x", yref="y", axref="x", ayref="y",
+                                   showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=3 if bad_node else 2, arrowcolor=c, text="")
+                if bad_node:
+                    put("imp", x0 + nw + gap / 2, pi - 0.14, "<b>영향</b>", c)
+        put("lane", -0.1, pi - 0.1, f"<b>{p}</b>")
+        put("lane", -0.1, pi + 0.16, f"<span style='font-size:11px'>● {SEV_TEXT[lane_sev]}</span>", SEV_INK[lane_sev] if lane_sev != "green" else "#16a34a")
+
+    fig.add_trace(go.Scatter(
+        x=dots["x"], y=dots["y"], mode="markers", customdata=dots["cd"], hovertext=dots["hv"], hoverinfo="text", showlegend=False,
+        marker=dict(symbol="square", size=dots["s"], color=dots["c"], opacity=1, line=dict(color="#0f172a", width=dots["lw"])),
+        selected=dict(marker=dict(opacity=1)), unselected=dict(marker=dict(opacity=1))))
+    for k, pos, size in (("title", "middle right", 12.5), ("count", "middle left", 11.5), ("row", "middle left", 9.5),
+                         ("col", "middle center", 9.5), ("lane", "middle left", 16), ("imp", "middle center", 10.5)):
+        d = txt[k]
+        fig.add_trace(go.Scatter(x=d["x"], y=d["y"], mode="text", text=d["t"], textposition=pos, hoverinfo="skip", showlegend=False,
+                                 textfont=dict(size=size, color=d["c"])))
+    fig.update_xaxes(range=[-0.62, total + 0.03], visible=False, fixedrange=True)
+    fig.update_yaxes(range=[len(PROCESSES) - 0.5, -0.5], visible=False, fixedrange=True)
+    fig.update_layout(height=MAP_LANE_PX * len(PROCESSES) + 8, margin=dict(l=0, r=0, t=4, b=4), hovermode="closest",
+                      dragmode=False, clickmode="event+select", hoverlabel=dict(bgcolor="#ffffff", font_size=12.5))
+    return style(fig)
+
+
+def _priority(plant, act: list[dict], sel):
+    """② 시급한 순 목록: 조치 필요 → 확인 필요. 줄 = 위치 / 현상 · 현재값 · 몇 분째."""
     if not act:
         st.markdown('<div class="ok-bar">전 공정 정상 — 진행 중인 이상점 없음</div>', unsafe_allow_html=True)
         return
-    for n, x in enumerate(act[:BANNER_N]):
-        sev = _sev(_now(plant, x)[0])
-        key = f"bn-{n}"
-        st.button(("🚨 " if sev == "red" else "⚠ ") + _headline(plant, x) + f" — {SEV_TEXT[sev]}",
-                  key=key, on_click=_select, args=("inc", _ikey(x)), width="stretch")
-        bg = "#dc2626" if sev == "red" else "#b45309"
-        rule = f".st-key-{key} button{{background:{bg} !important;"
-        if sev == "red":
-            rule += "animation:pulseR 1.8s ease-in-out infinite;"
+    css, last = [], None
+    sevs = [_sev(_now(plant, x)[0]) for x in act]
+    for n, (x, sv) in enumerate(zip(act, sevs)):
+        if sv != last:
+            st.markdown(f'<div class="pg {sv}">{SEV_TEXT[sv]} · {sevs.count(sv)}건</div>', unsafe_allow_html=True)
+            last = sv
+        what, i = _what(plant, x)
+        m = plant.meta.iloc[i]
+        tanks = x["what"].split(" — ")[0]
+        label = (f"**{x['bldg']} · {x['proc']} · {x['line']} · {tanks}**  \n"
+                 f"{m.param} {what} — **{_val(plant, i)}** · {_ago(plant, x['first'])}")
+        key = f"pl-{n}"
+        st.button(label, key=key, on_click=_select, args=("inc", _ikey(x)), width="stretch")
+        rule = f".st-key-{key} button{{border-left:7px solid {SEV_COLOR[sv]} !important;"
         if sel == ("inc", _ikey(x)):
-            rule += "outline:3px solid #0f172a;outline-offset:2px;"
+            rule += "background:#ecfeff !important;outline:2px solid #0f172a;outline-offset:-2px;"
         css.append(rule + "}")
-    if len(act) > BANNER_N:
-        st.caption(f"외 {len(act) - BANNER_N}건 진행 중 — 아래 캔버스와 경고 센터에서 모두 볼 수 있어요")
-    st.markdown("<style>" + "".join(css) + "</style>", unsafe_allow_html=True)
-
-
-def _flow(plant, bsel: str | None, sel_node: tuple | None):
-    """② 공정 흐름 노드: 공정마다 한 줄, 조 종류 = 노드(신호등), 노드 사이 화살표 = 앞 단계의 영향."""
-    css = []
-    for pi, p in enumerate(PROCESSES):
-        stages = _stages(p)
-        widths = [0.75] + sum(([1, 0.3] for _ in stages), [])[:-1]
-        cols = st.columns(widths, vertical_alignment="center", gap="small")
-        lane = plant.sel(proc=p, **({"bldg": bsel} if bsel else {}))
-        lsev = _sev_ids(plant, lane)[0]
-        cols[0].markdown(f'<div class="ln2">{p}<small style="color:{SEV_COLOR[lsev]}">● {SEV_TEXT[lsev]}</small></div>',
-                         unsafe_allow_html=True)
-        for si, stage in enumerate(stages):
-            ids = plant.sel(proc=p, stage=stage, **({"bldg": bsel} if bsel else {}))
-            sev, j = _sev_ids(plant, ids)
-            n_bad = int((plant.now_rank[ids] < NONE_RANK).sum())
-            label = f"*STAGE {si + 1:02d} · {_stage_name(stage)}*  \n**● {SEV_TEXT[sev]}**  \n이상 {n_bad} / {len(ids)}"
-            if j is not None:
-                m = plant.meta.iloc[j]
-                label += f"  \n{m.bldg} {m.line[0]} {m.tank} {m.param} {plant.V[j, -1]:.{int(m.dec)}f}"
-            key = f"fn-{pi}-{si}"
-            cols[1 + 2 * si].button(label, key=key, on_click=_select, args=("node", (p, stage)), width="stretch")
-            rule = {
-                "red": "border:2px solid #dc2626 !important;background:#fef2f2 !important;animation:glowR 1.8s ease-in-out infinite;",
-                "yellow": "border:2px solid #f59e0b !important;background:#fffbeb !important;animation:glowY 2.2s ease-in-out infinite;",
-                "green": "border:1px solid #cbd5e1 !important;background:#ffffff !important;",
-            }[sev]
-            if sel_node == (p, stage):
-                rule += "outline:3px solid #0f172a;outline-offset:3px;"
-            strong = {"red": "#dc2626", "yellow": "#b45309", "green": "#16a34a"}[sev]
-            css.append(f".st-key-{key} button{{{rule}}}.st-key-{key} button strong{{color:{strong};}}")
-            if si < len(stages) - 1:                          # 영향 화살표: 앞 단계(이 노드)가 이상이면 주황/빨강
-                c = IMPACT_COLOR[sev]
-                cols[2 + 2 * si].markdown(f'<div class="fa" style="--c:{c}"><b>{"영향" if sev != "green" else ""}</b><i></i></div>',
-                                          unsafe_allow_html=True)
     st.markdown("<style>" + "".join(css) + "</style>", unsafe_allow_html=True)
 
 
 def _canvas(plant, inc: list[dict], window: int, sel) -> go.Figure:
-    """③ 이상점 요약 캔버스: 세로 = 공정·조(흐름 순서), 가로 = 시간. 사고마다 지속 막대 + 지금 점. 점을 누르면 선택."""
+    """시간순 타임라인: 세로 = 공정·조(흐름 순서), 가로 = 시간. 사고마다 지속 막대 + 지금 점. 점을 누르면 선택."""
     used = {(it["proc"], it["stage"]) for it in inc}
     lanes = [(p, s) for p in PROCESSES for s in _stages(p) if (p, s) in used] or [(PROCESSES[0], _stages(PROCESSES[0])[0])]
     ypos = {ls: n for n, ls in enumerate(lanes)}
     x = plant.idx[-window:]
     step = x[1] - x[0]
-    # 같은 줄(공정·조)에 사고가 여럿이면 높이를 하나씩 나눠 줌 → 점이 겹치지 않아 따로 누를 수 있음
     slot, count = {}, {}
-    for it in inc:
+    for it in inc:                                           # 같은 줄에 사고가 여럿이면 높이를 나눠 겹치지 않게
         ls = (it["proc"], it["stage"])
         slot[_ikey(it)] = count.get(ls, 0)
         count[ls] = count.get(ls, 0) + 1
@@ -266,9 +361,10 @@ def _canvas(plant, inc: list[dict], window: int, sel) -> go.Figure:
         color = SEV_COLOR[sev] if it["active"] else "#94a3b8"
         end = "" if it["active"] else f"{it['last']:%H:%M}"      # 사내 Python 3.11 이하에서도 되게 f-string 중첩 안 함
         hover = f"{it['title']}<br>{it['what']}<br>{_status_text(it['rank'])} · {it['first']:%H:%M}~{end}"
+        # 지속 막대는 클릭·호버 대상에서 뺌: 선은 '선택'이 안 되는 종류라, 끝 점과 겹친 자리에서 선이 클릭을 가져가면 빈 선택이 됨
         fig.add_trace(go.Scatter(x=[it["first"], it["last"] + step], y=[y, y], mode="lines", line=dict(color=color, width=6),
-                                 customdata=[key, key], hovertext=[hover, hover], hoverinfo="text", showlegend=False))
-        picked = sel == ("inc", _ikey(it))                     # 선택된 점은 굵은 검정 테두리 (덮는 원을 따로 그리면 옆 점 클릭을 가로챔)
+                                 hoverinfo="skip", showlegend=False))
+        picked = sel is not None and tuple(sel[1]) == _ikey(it)
         fig.add_trace(go.Scatter(x=[it["last"] + step], y=[y], mode="markers", customdata=[key], hovertext=[hover],
                                  hoverinfo="text", showlegend=False,
                                  marker=dict(size=14 if picked else (12 if it["active"] else 9),
@@ -282,62 +378,63 @@ def _canvas(plant, inc: list[dict], window: int, sel) -> go.Figure:
     fig.update_yaxes(tickvals=list(range(len(lanes))), ticktext=[f"{p} · {_stage_name(s)}" for p, s in lanes],
                      range=[len(lanes) - 0.5, -0.5], showgrid=False, tickfont=dict(size=12, color="#0f172a"))
     fig.update_xaxes(range=[x[0], x[-1] + step * 6], tickformat="%H:%M" if window <= 288 else "%m/%d %H:%M")
-    fig.update_layout(height=58 * len(lanes) + 50, margin=dict(l=8, r=8, t=8, b=8), hovermode="closest",
+    fig.update_layout(height=44 * len(lanes) + 50, margin=dict(l=8, r=8, t=8, b=8), hovermode="closest",
                       clickmode="event+select", dragmode=False)
     return style(fig)
 
 
-def _detail(plant, sel, inc: list[dict], window: int, bsel: str | None):
-    """④ 공정 상세 트렌드: 선택된 이상점(또는 노드)의 센서 추이."""
-    if sel and sel[0] == "inc":
-        x = next(it for it in inc if _ikey(it) == tuple(sel[1]))
-        title, sub = f"{x['title']} · {x['what']}", f"{_status_text(x['rank'])} · {x['first']:%H:%M}부터"
-        sids = x["sids"][:4]
-    elif sel and sel[0] == "node":
-        p, stage = sel[1]
-        ids = plant.sel(proc=p, stage=stage, **({"bldg": bsel} if bsel else {}))
-        bad = [int(i) for i in ids[np.argsort(plant.now_rank[ids], kind="stable")] if plant.now_rank[i] < NONE_RANK]
-        title = f"{p} · {_stage_name(stage)}" + (f" · {bsel}" if bsel else "")
-        sub = f"이상 센서 {len(bad)}개" if bad else "이상 없음 — 첫 계열 센서를 보여 줌"
-        sids = bad[:4] or [int(i) for i in ids[:2]]
-    else:
+def _detail(plant, sel, inc: list[dict], window: int):
+    """③ 선택 상세: 선택한 사고(또는 맵에서 누른 위치)의 센서 추이를 한 줄에."""
+    if not sel:
         return
-    st.markdown(f'<div class="sec">④ 공정 상세 트렌드<span>{title} — {sub}</span></div>', unsafe_allow_html=True)
-    for k in range(0, len(sids), 2):
-        for col, i in zip(st.columns(2), sids[k:k + 2]):
-            with col:
-                st.markdown(_sensor_head(plant, i, window), unsafe_allow_html=True)
-                st.plotly_chart(trend_figure(plant, i, window), width="stretch", key=f"tr-{i}-{window}",
-                                config={"displayModeBar": False})
+    b, p, l, stage = sel[1]
+    x = next((it for it in inc if _ikey(it) == tuple(sel[1])), None) if sel[0] == "inc" else None
+    if x:
+        what, i = _what(plant, x)
+        sub = f"{plant.meta['param'].iat[i]} {what} · {_ago(plant, x['first'])} ({x['first']:%H:%M}부터)" if x["active"] else "해소됨"
+        sids = x["sids"][:4]
+    else:
+        ids = plant.sel(bldg=b, proc=p, line=l, stage=stage)
+        ids = ids[np.argsort(plant.now_rank[ids], kind="stable")]
+        n_bad = int((plant.now_rank[ids] < NONE_RANK).sum())
+        sub = f"이상 센서 {n_bad}개" if n_bad else "이상 없음"
+        sids = [int(i) for i in ids[:4]]
+    st.markdown(f'<div class="sec">선택 상세 — {b} · {p} · {l} · {_stage_name(stage)}<span>{sub} · 다른 곳을 보려면 맵의 점이나 목록을 누르세요</span></div>',
+                unsafe_allow_html=True)
+    for col, i in zip(st.columns(max(len(sids), 2)), sids):
+        with col:
+            st.markdown(_sensor_head(plant, i, window), unsafe_allow_html=True)
+            st.plotly_chart(trend_figure(plant, i, window, 230), width="stretch", key=f"tr-{i}-{window}",
+                            config={"displayModeBar": False})
 
 
 def overview():
     plant, window = _ctx()
     all_inc = incidents(plant, window)
-    # 시급한 순: 조치 필요(red) → 확인 필요, 같은 단계면 경고 순위 → 최근 시작
+    # 시급한 순: 조치 필요(red) → 확인 필요, 같은 단계면 경고 순위 → 오래된 순
     act = sorted([x for x in all_inc if x["active"]],
-                 key=lambda x: (_sev(_now(plant, x)[0]) != "red", _now(plant, x)[0], -x["first"].value))
+                 key=lambda x: (_sev(_now(plant, x)[0]) != "red", _now(plant, x)[0], x["first"].value))
     sel = _resolve_selection(act + [x for x in all_inc if not x["active"]])
 
-    st.markdown('<div class="sec" style="margin-top:0">① 주요 이상점<span>시급한 순 · 누르면 아래 노드·캔버스·트렌드가 함께 바뀜</span></div>',
-                unsafe_allow_html=True)
-    _banner(plant, act, sel)
+    _summary(plant, act)
+    left, right = st.columns([1.75, 1], gap="medium")
+    with left:
+        st.markdown('<div class="sec" style="margin-top:4px">어디서<span>공정 흐름 → · 노드 안 점 = 세로 동(1~3) × 가로 계열(A~D) · '
+                    '큰 색 점 = 이상 · 점을 누르면 아래에 상세</span></div>', unsafe_allow_html=True)
+        st.plotly_chart(_plant_map(plant, tuple(sel[1]) if sel else None), width="stretch", key=_chart_key("map"),
+                        on_select="rerun", selection_mode="points", config={"displayModeBar": False})
+    with right:
+        st.markdown(f'<div class="sec" style="margin-top:4px">무엇부터<span>진행 중 {len(act)}건 · 시급한 순</span></div>',
+                    unsafe_allow_html=True)
+        with st.container(height=MAP_LANE_PX * len(PROCESSES) + 4, border=False, key="plist"):
+            _priority(plant, act, sel)
 
-    head, filt = st.columns([3, 1.4], vertical_alignment="bottom")
-    head.markdown('<div class="sec">② 공정 흐름<span>신호등: 초록 정상 · 노랑 확인 필요 · 빨강 조치 필요 · 화살표 색 = 앞 단계 이상의 영향</span></div>',
-                  unsafe_allow_html=True)
-    b = filt.segmented_control("동", ["전체"] + BUILDINGS, default="전체", key="ov_b", label_visibility="collapsed")
-    bsel = None if b in (None, "전체") else b
-    sel_node = (sel[1][1], sel[1][3]) if sel and sel[0] == "inc" else (tuple(sel[1]) if sel else None)
-    _flow(plant, bsel, sel_node)
-
-    shown = [x for x in all_inc if not bsel or x["bldg"] == bsel]
-    st.markdown(f'<div class="sec">③ 이상점 요약 캔버스<span>{len(shown)}건 · 이상이 있었던 공정만 · 막대 = 지속 시간, 큰 점 = 지금 진행 중 · 점을 누르면 아래 트렌드로</span></div>',
-                unsafe_allow_html=True)
-    st.plotly_chart(_canvas(plant, shown, window, sel), width="stretch", key="ov_canvas", on_select="rerun",
-                    selection_mode="points", config={"displayModeBar": False})
-
-    _detail(plant, sel, all_inc, window, bsel)
+    _detail(plant, sel, all_inc, window)
+    # 타임라인은 스위치를 켰을 때만 그림 (안 볼 때는 그리는 비용이 없음)
+    if st.toggle(f"시간 순으로 보기 — 이상점 타임라인 ({len(all_inc)}건, 막대 = 지속 시간, 점을 누르면 선택)", key="ov_tl"):
+        st.plotly_chart(_canvas(plant, all_inc, window, sel), width="stretch", key=_chart_key("canvas"), on_select="rerun",
+                        selection_mode="points", config={"displayModeBar": False})
+        _legend()
 
 
 # ───────────────────────── 2. 공정 상세 ─────────────────────────
